@@ -8,8 +8,8 @@ if [[ -z "${SCRIPT_DIR:-}" ]]; then
     SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 fi
 
-# Resolve openclaw scripts from scripts/install/openclaw/ (sibling to scripts/deploy/)
-_ai_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../install" && pwd -P)"
+# Resolve openclaw scripts relative to this file (sibling to this file in scripts/deploy/openclaw/)
+_ai_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 
 # OpenCLAW is optional — source only if not disabled
 if [[ "${LOAD_OPENCLAW:-true}" != "false" ]]; then
