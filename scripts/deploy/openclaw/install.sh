@@ -33,16 +33,19 @@ get_latest_openclaw_version() {
 install_openclaw() {
     log_step "Installing OpenCLAW..."
 
-    local OPENCLAW_VERSION="${OPENCLAW_VERSION:-2026.4.26}"
+    local OPENCLAW_VERSION="${OPENCLAW_VERSION:-2026.5.7}"
 
     if command -v openclaw &> /dev/null; then
         local oc_version
         oc_version=$(openclaw --version 2>/dev/null || echo "installed")
-        if [[ "$oc_version" == *"$OPENCLAW_VERSION"* ]]; then
+        # Extract version number from output like "OpenClaw 2026.4.26 (be8c246)" -> "2026.4.26"
+        local installed_version
+        installed_version=$(echo "$oc_version" | sed -E 's/.*OpenClaw[ _]?([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
+        if [[ "$installed_version" == "$OPENCLAW_VERSION" ]]; then
             log_info "OpenCLAW already installed: $oc_version"
             return 0
         else
-            log_warn "OpenCLAW version mismatch: $oc_version, reinstalling to $OPENCLAW_VERSION..."
+            log_warn "OpenCLAW version mismatch: $installed_version != $OPENCLAW_VERSION, reinstalling..."
             cleanup_openclaw_npm
         fi
     fi
