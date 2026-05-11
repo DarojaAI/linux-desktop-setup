@@ -293,7 +293,7 @@ print('Merged environment config')
     # Validate and auto-fix config after writing
     validate_openclaw_config "$config_file" "$TARGET_USER"
 
-    chown -R "$TARGET_USER:$TARGET_USER" "$openclaw_dir"
+    chown -R "$TARGET_USER:$TARGET_USER" "$openclaw_dir" 2>/dev/null || true
     log_info "OpenClaw configuration complete for user $TARGET_USER"
 }
 
@@ -504,7 +504,7 @@ print('Config updated')
     validate_openclaw_config "$config_file" "$TARGET_USER"
 
 
-    chown -R "$TARGET_USER:$TARGET_USER" "$openclaw_dir"
+    chown -R "$TARGET_USER:$TARGET_USER" "$openclaw_dir" 2>/dev/null || true
     log_info "OpenClaw agent binding complete"
 }
 
