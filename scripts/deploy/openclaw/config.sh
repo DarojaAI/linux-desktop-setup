@@ -338,6 +338,10 @@ EOF
     fi
 
     chown -R "$TARGET_USER:$TARGET_USER" "$target_home/.config"
+
+    # Note: daemon-reload and restart happen in setup_openclaw_systemd_service
+    # which runs after this function in the deploy order. Writing the override
+    # file before the service exists is fine — systemd picks it up on reload.
     log_info "OpenClaw systemd override created at $override_file"
 }
 

@@ -193,37 +193,40 @@ EOF
         log_warn "Could not enable linger (may already be enabled or requires systemd-logind)"
     fi
 
-    # Start the gateway directly (systemd user services require an active session)
-    # The systemd service file is in place for when the user connects via RDP
-    log_info "Starting OpenCLAW gateway directly..."
+    # Set XDG_RUNTIME_DIR for systemctl --user (running as root, needs explicit env)
     local user_id
     user_id=$(id -u "$TARGET_USER")
+    export XDG_RUNTIME_DIR="/run/user/$user_id"
 
-    # Source environment variables for gateway startup
-    # OpenCLAW reads ${VAR} from config, needs env vars at runtime
-    if [[ -f "$override_file" ]]; then
-        # Parse systemd override file format: Environment=KEY=value
-        while IFS= read -r line; do
-            [[ "$line" =~ ^Environment=([^=]+)=(.+)$ ]] && export "${BASH_REMATCH[1]}=${BASH_REMATCH[2]}"
-        done < "$override_file"
-    fi
+    # Stop any existing nohup/wrong processes first (clean up zombie from previous broken deploys)
+    log_info "Stopping any existing gateway process..."
+    pkill -f "openclaw gateway" 2>/dev/null || true
+    sleep 1
 
-    # Start gateway in background with proper environment
-    sudo -u "$TARGET_USER" XDG_RUNTIME_DIR="/run/user/$user_id" \
-        OPENROUTER_API_KEY="$OPENROUTER_API_KEY" \
-        DISCORD_BOT_TOKEN="$DISCORD_BOT_TOKEN" \
-        nohup openclaw gateway --port 18789 > /var/log/openclaw-gateway.log 2>&1 &
-    local gateway_pid=$!
+    # Reload systemd to pick up the service file and override
+    log_info "Reloading systemd daemon..."
+    systemctl --user daemon-reload 2>/dev/null || log_warn "Could not reload systemd user daemon"
 
-    sleep 2
-    if kill -0 "$gateway_pid" 2>/dev/null; then
-        log_info "OpenCLAW gateway started (PID: $gateway_pid)"
-        echo "$gateway_pid" > /var/run/openclaw-gateway.pid
+    # Enable the service so it starts on boot
+    log_info "Enabling openclaw-gateway.service..."
+    systemctl --user enable openclaw-gateway.service 2>/dev/null || log_warn "Could not enable openclaw-gateway.service"
+
+    # Start/restart the gateway via systemd — this properly picks up Environment= vars
+    # from the override file. Linger is enabled so user services work via SSH.
+    log_info "Starting openclaw-gateway.service via systemd..."
+    if systemctl --user start openclaw-gateway.service 2>/dev/null; then
+        sleep 3
+        if systemctl --user is-active openclaw-gateway.service 2>/dev/null; then
+            log_info "OpenCLAW gateway started via systemd"
+        else
+            log_warn "Gateway service started but may not be active, check: systemctl --user status openclaw-gateway.service"
+        fi
     else
-        log_warn "OpenCLAW gateway may not have started, check /var/log/openclaw-gateway.log"
+        log_error "Failed to start openclaw-gateway.service"
+        log_info "Check service status: systemctl --user status openclaw-gateway.service"
+        log_info "Check logs: journalctl --user -u openclaw-gateway.service -n 30"
+        return 1
     fi
-
-    log_info "Note: systemd service will be available after user connects via RDP"
 
     log_info "OpenCLAW systemd service created at $service_file"
 }
