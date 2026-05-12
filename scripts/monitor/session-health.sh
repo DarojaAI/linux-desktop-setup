@@ -158,26 +158,23 @@ generate_report() {
 }
 
 monitor_openclaw() {
-    # Source health.sh for OpenClaw-specific functions
-    local health_script
-    health_script="$(cd "$(dirname "${BASH_SOURCE[0]}")/../install/openclaw" && pwd -P)/health.sh"
+    # health.sh lives alongside the monitor scripts in /usr/local/bin/monitor/
+    local health_script="/usr/local/bin/monitor/health.sh"
 
     if [[ ! -f "$health_script" ]]; then
         log_warn "OpenClaw health script not found at $health_script"
         return 0
     fi
 
-    # Source the health script functions
-    # shellcheck source=../install/openclaw/health.sh
+    # shellcheck source=health.sh
     if ! source "$health_script" 2>/dev/null; then
         log_error "Failed to source OpenClaw health script at $health_script"
-        return 1
+        return 0
     fi
 
-    # Validate that main() was loaded
     if ! declare -f main > /dev/null; then
         log_error "main function not found after sourcing $health_script"
-        return 1
+        return 0
     fi
 
     local health_log="/var/log/openclaw-health.log"
@@ -189,12 +186,15 @@ monitor_openclaw() {
     timestamp=$(date '+%Y-%m-%d %H:%M:%S')
 
     # Run the full health pipeline: endpoint → log → process, restart on any failure
+    # Always return 0 — self-healing is handled INSIDE main(), daemon must not exit
     if health_output=$(main 2>&1); then
         echo "$timestamp [PASS] OpenClaw gateway healthy" >> "$health_log"
     else
         echo "$timestamp [FAIL] OpenClaw health check failed — self-healing attempted" >> "$health_log"
         echo "  Health output: $health_output" >> "$health_log"
     fi
+
+    return 0
 }
 
 export -f init_logs monitor_active_sessions check_process_health alert create_github_issue monitor_crash_logs generate_report monitor_openclaw

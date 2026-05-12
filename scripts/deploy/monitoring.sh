@@ -158,6 +158,16 @@ setup_monitoring() {
         log_warn "Monitor directory not found in repo"
     fi
 
+    # Copy health.sh into the monitor directory so monitor_openclaw() can find it
+    local repo_health="$repo_dir/scripts/install/openclaw/health.sh"
+    if [[ -f "$repo_health" ]]; then
+        sed 's/\r$//' "$repo_health" > "$monitor_dir/health.sh"
+        chmod +x "$monitor_dir/health.sh"
+        log_info "Installed OpenClaw health probe to $monitor_dir/health.sh"
+    else
+        log_warn "OpenClaw health script not found in repo"
+    fi
+
     # Create config file before enabling service
     local config_dir="/var/lib/xrdp"
     mkdir -p "$config_dir"

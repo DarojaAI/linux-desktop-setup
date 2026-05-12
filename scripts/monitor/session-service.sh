@@ -67,6 +67,7 @@ CONFIG_EOF
     declare -f monitor_active_sessions >> /var/lib/xrdp/session-monitor-config.sh
     declare -f monitor_crash_logs >> /var/lib/xrdp/session-monitor-config.sh
     declare -f generate_report >> /var/lib/xrdp/session-monitor-config.sh
+    declare -f monitor_openclaw >> /var/lib/xrdp/session-monitor-config.sh
 
     systemctl daemon-reload
     systemctl enable xrdp-session-monitor.service
