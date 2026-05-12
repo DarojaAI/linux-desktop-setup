@@ -143,13 +143,13 @@ setup_monitoring() {
 
     if [[ -d "$repo_monitor" ]]; then
         mkdir -p "$monitor_dir"
+        shopt -s nullglob
         for script in "$repo_monitor"/*.sh; do
-            if [[ -f "$script" ]]; then
-                local filename; filename=$(basename "$script")
-                sed 's/\r$//' "$script" > "$monitor_dir/$filename"
-                chmod +x "$monitor_dir/$filename"
-            fi
+            local filename="${script##*/}"
+            sed 's/\r$//' "$script" > "$monitor_dir/$filename"
+            chmod +x "$monitor_dir/$filename"
         done
+        shopt -u nullglob
         log_info "Installed monitor modules to $monitor_dir"
     else
         log_warn "Monitor directory not found in repo"
