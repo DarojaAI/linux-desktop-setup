@@ -112,8 +112,8 @@ setup_monitoring() {
         return 1
     fi
 
-    # SCRIPT_DIR points to scripts/deploy, so REPO_DIR goes up one level to repo root
-    local repo_dir="${SCRIPT_DIR%/*}"
+    # SCRIPT_DIR = repo/scripts/deploy, so repo_dir goes up two levels to repo root
+    local repo_dir="${SCRIPT_DIR%/*/*}"
 
     # Copy monitoring script
     local monitor_script="/usr/local/bin/session-monitor.sh"
