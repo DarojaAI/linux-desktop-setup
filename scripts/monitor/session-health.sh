@@ -1,7 +1,7 @@
 #!/bin/bash
 # Session health monitoring: process checks, crash log scanning, GitHub issue creation
 
-set -euo pipefail
+set -uo pipefail
 
 MONITOR_LOG="${MONITOR_LOG:-/var/log/xrdp/session-monitor.log}"
 ALERT_LOG="${ALERT_LOG:-/var/log/xrdp/session-alerts.log}"
@@ -159,21 +159,11 @@ generate_report() {
 
 monitor_openclaw() {
     # health.sh lives alongside the monitor scripts in /usr/local/bin/monitor/
+    # Run as subprocess to isolate its set -euo pipefail from the daemon shell
     local health_script="/usr/local/bin/monitor/health.sh"
 
     if [[ ! -f "$health_script" ]]; then
         log_warn "OpenClaw health script not found at $health_script"
-        return 0
-    fi
-
-    # shellcheck source=health.sh
-    if ! source "$health_script" 2>/dev/null; then
-        log_error "Failed to source OpenClaw health script at $health_script"
-        return 0
-    fi
-
-    if ! declare -f main > /dev/null; then
-        log_error "main function not found after sourcing $health_script"
         return 0
     fi
 
@@ -185,9 +175,9 @@ monitor_openclaw() {
     local timestamp
     timestamp=$(date '+%Y-%m-%d %H:%M:%S')
 
-    # Run the full health pipeline: endpoint → log → process, restart on any failure
-    # Always return 0 — self-healing is handled INSIDE main(), daemon must not exit
-    if health_output=$(main 2>&1); then
+    # Run health.sh as a subprocess — its set -e cannot exit the daemon
+    # The || true ensures the subprocess exit code doesn't propagate to us
+    if health_output=$(bash "$health_script" 2>&1 || true); then
         echo "$timestamp [PASS] OpenClaw gateway healthy" >> "$health_log"
     else
         echo "$timestamp [FAIL] OpenClaw health check failed — self-healing attempted" >> "$health_log"

@@ -1,7 +1,7 @@
 #!/bin/bash
 # Session cleanup: orphaned process detection and removal
 
-set -euo pipefail
+set -uo pipefail
 
 MONITOR_LOG="${MONITOR_LOG:-/var/log/xrdp/session-monitor.log}"
 
