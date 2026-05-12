@@ -16,7 +16,7 @@ install_service() {
 
     cat > /usr/local/bin/xrdp-session-monitor << 'SCRIPT_EOF'
 #!/bin/bash
-set -euo pipefail
+set -uo pipefail
 # Source modular scripts directly — daemon must be self-sufficient, not dependent on declare -f in config
 source /usr/local/bin/monitor/session-cleanup.sh
 source /usr/local/bin/monitor/session-health.sh

@@ -147,13 +147,13 @@ generate_report() {
         echo ""
         echo "=== Session Monitor Report - $timestamp ==="
         echo "Active Xvnc Sessions:"
-        ps aux | grep "[X]vnc" | awk '{print $2, $3"% CPU", $4"% MEM", $11}'
+        ps aux | grep "[X]vnc" | awk '{print $2, $3"% CPU", $4"% MEM", $11}' || true
         echo ""
         echo "Memory Usage Summary:"; free -h
         echo ""
         echo "Disk Usage:"; df -h /
         echo ""
-        echo "Recent Alerts:"; tail -10 "$ALERT_LOG" 2>/dev/null || echo "  (none)"
+        echo "Recent Alerts:"; tail -10 "$ALERT_LOG" 2>/dev/null || true
     } >> "$MONITOR_LOG" 2>&1
 }
 
