@@ -112,9 +112,12 @@ setup_monitoring() {
         return 1
     fi
 
+    # SCRIPT_DIR points to scripts/deploy, so REPO_DIR goes up one level to repo root
+    local repo_dir="${SCRIPT_DIR%/*}"
+
     # Copy monitoring script
     local monitor_script="/usr/local/bin/session-monitor.sh"
-    local repo_script="$SCRIPT_DIR/scripts/session-monitor.sh"
+    local repo_script="$repo_dir/scripts/session-monitor.sh"
 
     if [[ -f "$repo_script" ]]; then
         # Convert CRLF to LF for Linux compatibility
@@ -128,7 +131,7 @@ setup_monitoring() {
 
     # Copy analysis script
     local analyze_script="/usr/local/bin/analyze-session-logs.sh"
-    local repo_analyze="$SCRIPT_DIR/scripts/analyze-session-logs.sh"
+    local repo_analyze="$repo_dir/scripts/analyze-session-logs.sh"
 
     if [[ -f "$repo_analyze" ]]; then
         # Convert CRLF to LF for Linux compatibility
@@ -139,7 +142,7 @@ setup_monitoring() {
 
     # Copy monitor module directory (session-cleanup.sh, session-health.sh, session-service.sh)
     local monitor_dir="/usr/local/bin/monitor"
-    local repo_monitor="$SCRIPT_DIR/scripts/monitor"
+    local repo_monitor="$repo_dir/scripts/monitor"
 
     if [[ -d "$repo_monitor" ]]; then
         mkdir -p "$monitor_dir"
