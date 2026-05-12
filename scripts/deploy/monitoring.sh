@@ -137,6 +137,24 @@ setup_monitoring() {
         log_info "Installed session analysis script"
     fi
 
+    # Copy monitor module directory (session-cleanup.sh, session-health.sh, session-service.sh)
+    local monitor_dir="/usr/local/bin/monitor"
+    local repo_monitor="$SCRIPT_DIR/scripts/monitor"
+
+    if [[ -d "$repo_monitor" ]]; then
+        mkdir -p "$monitor_dir"
+        for script in "$repo_monitor"/*.sh; do
+            if [[ -f "$script" ]]; then
+                local filename; filename=$(basename "$script")
+                sed 's/\r$//' "$script" > "$monitor_dir/$filename"
+                chmod +x "$monitor_dir/$filename"
+            fi
+        done
+        log_info "Installed monitor modules to $monitor_dir"
+    else
+        log_warn "Monitor directory not found in repo"
+    fi
+
     # Create config file before enabling service
     local config_dir="/var/lib/xrdp"
     mkdir -p "$config_dir"
