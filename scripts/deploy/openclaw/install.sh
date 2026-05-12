@@ -193,30 +193,29 @@ EOF
         log_warn "Could not enable linger (may already be enabled or requires systemd-logind)"
     fi
 
-    # Set XDG_RUNTIME_DIR for systemctl --user (running as root, needs explicit env)
+    # Set XDG_RUNTIME_DIR so sudo -u desktopuser can talk to the right D-Bus socket
     local user_id
     user_id=$(id -u "$TARGET_USER")
     export XDG_RUNTIME_DIR="/run/user/$user_id"
 
-    # Stop any existing nohup/wrong processes first (clean up zombie from previous broken deploys)
+    # Stop any existing gateway processes (nohup zombies from previous broken deploys)
     log_info "Stopping any existing gateway process..."
     pkill -f "openclaw gateway" 2>/dev/null || true
     sleep 1
 
-    # Reload systemd to pick up the service file and override
+    # Reload systemd, enable, and start as desktopuser — not root
+    # Running as root with XDG_RUNTIME_DIR still talks to root's user manager (doesn't exist)
+    # sudo -u desktopuser ensures we talk to user@1000.service's D-Bus socket
     log_info "Reloading systemd daemon..."
-    systemctl --user daemon-reload 2>/dev/null || log_warn "Could not reload systemd user daemon"
+    sudo -u "$TARGET_USER" systemctl --user daemon-reload 2>/dev/null || log_warn "Could not reload systemd user daemon"
 
-    # Enable the service so it starts on boot
     log_info "Enabling openclaw-gateway.service..."
-    systemctl --user enable openclaw-gateway.service 2>/dev/null || log_warn "Could not enable openclaw-gateway.service"
+    sudo -u "$TARGET_USER" systemctl --user enable openclaw-gateway.service 2>/dev/null || log_warn "Could not enable service"
 
-    # Start/restart the gateway via systemd — this properly picks up Environment= vars
-    # from the override file. Linger is enabled so user services work via SSH.
     log_info "Starting openclaw-gateway.service via systemd..."
-    if systemctl --user start openclaw-gateway.service 2>/dev/null; then
+    if sudo -u "$TARGET_USER" systemctl --user start openclaw-gateway.service 2>/dev/null; then
         sleep 3
-        if systemctl --user is-active openclaw-gateway.service 2>/dev/null; then
+        if sudo -u "$TARGET_USER" systemctl --user is-active openclaw-gateway.service 2>/dev/null; then
             log_info "OpenCLAW gateway started via systemd"
         else
             log_warn "Gateway service started but may not be active, check: systemctl --user status openclaw-gateway.service"
