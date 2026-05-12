@@ -193,7 +193,7 @@ EOF
         log_warn "Could not enable linger (may already be enabled or requires systemd-logind)"
     fi
 
-    # Set XDG_RUNTIME_DIR so sudo -u desktopuser can talk to the right D-Bus socket
+    # Set XDG_RUNTIME_DIR for the user's systemd user manager
     local user_id
     user_id=$(id -u "$TARGET_USER")
     export XDG_RUNTIME_DIR="/run/user/$user_id"
@@ -203,28 +203,51 @@ EOF
     pkill -f "openclaw gateway" 2>/dev/null || true
     sleep 1
 
-    # Reload systemd, enable, and start as desktopuser — not root
-    # Running as root with XDG_RUNTIME_DIR still talks to root's user manager (doesn't exist)
-    # sudo -u desktopuser ensures we talk to user@1000.service's D-Bus socket
-    log_info "Reloading systemd daemon..."
-    sudo -u "$TARGET_USER" systemctl --user daemon-reload 2>/dev/null || log_warn "Could not reload systemd user daemon"
-
-    log_info "Enabling openclaw-gateway.service..."
-    sudo -u "$TARGET_USER" systemctl --user enable openclaw-gateway.service 2>/dev/null || log_warn "Could not enable service"
-
-    log_info "Starting openclaw-gateway.service via systemd..."
-    if sudo -u "$TARGET_USER" systemctl --user start openclaw-gateway.service 2>/dev/null; then
+    # Try systemd first — this works on established VMs with a running user manager
+    log_info "Trying systemd user service..."
+    local systemd_ok=false
+    if sudo -u "$TARGET_USER" systemctl --user daemon-reload 2>/dev/null && \
+       sudo -u "$TARGET_USER" systemctl --user enable openclaw-gateway.service 2>/dev/null && \
+       sudo -u "$TARGET_USER" systemctl --user start openclaw-gateway.service 2>/dev/null; then
         sleep 3
         if sudo -u "$TARGET_USER" systemctl --user is-active openclaw-gateway.service 2>/dev/null; then
             log_info "OpenCLAW gateway started via systemd"
-        else
-            log_warn "Gateway service started but may not be active, check: systemctl --user status openclaw-gateway.service"
+            systemd_ok=true
         fi
-    else
-        log_error "Failed to start openclaw-gateway.service"
-        log_info "Check service status: systemctl --user status openclaw-gateway.service"
-        log_info "Check logs: journalctl --user -u openclaw-gateway.service -n 30"
-        return 1
+    fi
+
+    if [[ "$systemd_ok" != "true" ]]; then
+        # Fall back to supervised direct launch — needed when the systemd user manager
+        # isn't ready yet (fresh VM, SSH session, no active user session).
+        # We read env vars from the override file and pass them explicitly so the
+        # gateway has them at startup (no ${VAR} interpolation needed).
+        log_info "Systemd not available, starting gateway directly..."
+
+        # Read env vars from the override file we wrote above
+        if [[ -f "$override_file" ]]; then
+            while IFS= read -r line; do
+                [[ "$line" =~ ^Environment=([^=]+)=(.+)$ ]] && \
+                    export "${BASH_REMATCH[1]}=${BASH_REMATCH[2]}"
+            done < "$override_file"
+        fi
+
+        # Also pass the raw shell env vars so they take precedence
+        export OPENROUTER_API_KEY="$OPENROUTER_API_KEY" \
+               DISCORD_BOT_TOKEN="$DISCORD_BOT_TOKEN" \
+               ANTHROPIC_API_BASE="${ANTHROPIC_API_BASE:-}"
+
+        sudo -u "$TARGET_USER" XDG_RUNTIME_DIR="/run/user/$user_id" \
+            nohup openclaw gateway --port 18789 >> /var/log/openclaw-gateway.log 2>&1 &
+        local gateway_pid=$!
+
+        sleep 2
+        if kill -0 "$gateway_pid" 2>/dev/null; then
+            echo "$gateway_pid" > /var/run/openclaw-gateway.pid
+            log_info "OpenCLAW gateway started directly (PID: $gateway_pid)"
+        else
+            log_error "Gateway failed to start, check /var/log/openclaw-gateway.log"
+            return 1
+        fi
     fi
 
     log_info "OpenCLAW systemd service created at $service_file"
