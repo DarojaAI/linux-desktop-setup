@@ -23,6 +23,7 @@ cleanup_orphaned_sessions
 while true; do
     monitor_active_sessions
     monitor_crash_logs
+    monitor_openclaw
     cleanup_orphaned_sessions
     generate_report
     sleep 30

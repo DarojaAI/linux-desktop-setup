@@ -167,22 +167,20 @@ monitor_openclaw() {
         return 0
     fi
 
-    # Source the health script functions (check_process, restart_with_backoff, etc.)
+    # Source the health script functions
     # shellcheck source=../install/openclaw/health.sh
     if ! source "$health_script" 2>/dev/null; then
         log_error "Failed to source OpenClaw health script at $health_script"
         return 1
     fi
 
-    # Validate that required functions were loaded
-    if ! declare -f check_process > /dev/null; then
-        log_error "check_process function not found after sourcing $health_script"
+    # Validate that main() was loaded
+    if ! declare -f main > /dev/null; then
+        log_error "main function not found after sourcing $health_script"
         return 1
     fi
 
     local health_log="/var/log/openclaw-health.log"
-
-    # Initialize health log with proper permissions
     mkdir -p "$(dirname "$health_log")"
     touch "$health_log"
     chmod 644 "$health_log"
@@ -190,21 +188,12 @@ monitor_openclaw() {
     local timestamp
     timestamp=$(date '+%Y-%m-%d %H:%M:%S')
 
-    # Check if OpenClaw gateway process is running
-    if check_process >/dev/null 2>&1; then
-        echo "$timestamp [PASS] OpenClaw gateway running" >> "$health_log"
+    # Run the full health pipeline: endpoint → log → process, restart on any failure
+    if health_output=$(main 2>&1); then
+        echo "$timestamp [PASS] OpenClaw gateway healthy" >> "$health_log"
     else
-        {
-            echo "$timestamp [FAIL] OpenClaw gateway NOT running"
-            # Attempt self-heal via restart, capture output for diagnostics
-            if restart_output=$(restart_with_backoff 2>&1); then
-                echo "$timestamp [HEAL] OpenClaw gateway restarted successfully"
-                echo "  Restart output: $restart_output"
-            else
-                echo "$timestamp [CRIT] OpenClaw gateway restart FAILED"
-                echo "  Restart output: $restart_output"
-            fi
-        } >> "$health_log" 2>&1
+        echo "$timestamp [FAIL] OpenClaw health check failed — self-healing attempted" >> "$health_log"
+        echo "  Health output: $health_output" >> "$health_log"
     fi
 }
 
