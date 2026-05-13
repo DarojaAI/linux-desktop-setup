@@ -46,6 +46,7 @@ source "$SCRIPT_DIR/scripts/deploy/system.sh"
 source "$SCRIPT_DIR/scripts/deploy/dev-tools.sh"
 source "$SCRIPT_DIR/scripts/deploy/ai-tools.sh"
 source "$SCRIPT_DIR/scripts/deploy/desktop-environment.sh"
+source "$SCRIPT_DIR/scripts/deploy/monitoring.sh"
 source "$SCRIPT_DIR/scripts/deploy/configure.sh"
 
 # Main function
