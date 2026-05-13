@@ -75,6 +75,7 @@ setup_openclaw_config() {
         if [[ -f "$repo_config" ]]; then
             # Copy default config (tokens are now env references)
             cp "$repo_config" "$config_file"
+            chmod 644 "$config_file"
             log_info "Copied OpenClaw default config with env-based token resolution"
 
             # Deep merge environment-specific config if it exists
@@ -123,6 +124,7 @@ with open(config_file, 'w') as f:
 
 print('Merged environment config')
 "
+            chmod 644 "$config_file"
             fi
         else
             # Create minimal config with env references
@@ -173,6 +175,7 @@ print('Merged environment config')
   }
 }
 EOF
+            chmod 644 "$config_file"
             log_info "Created minimal OpenClaw config with env-based token resolution"
         fi
     else
@@ -294,6 +297,7 @@ print('Merged environment config')
     validate_openclaw_config "$config_file" "$TARGET_USER"
 
     chown -R "$TARGET_USER:$TARGET_USER" "$openclaw_dir" 2>/dev/null || true
+    chmod 444 "$config_file" 2>/dev/null || true
     log_info "OpenClaw configuration complete for user $TARGET_USER"
 }
 
