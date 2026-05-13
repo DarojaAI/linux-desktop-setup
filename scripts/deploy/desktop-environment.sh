@@ -135,4 +135,4 @@ EOF
 }
 
 # Export functions for use in main script
-export -f create_desktop_shortcuts setup_keyring setup_monitoring setup_gnome_extensions
+export -f create_desktop_shortcuts setup_keyring setup_gnome_extensions
