@@ -31,7 +31,7 @@ setup_environment() {
     mkdir -p "$config_dir"
 
     # Copy environment example if it exists
-    local repo_config="$(dirname "$SCRIPT_DIR")/.env.example"
+    local repo_config="$SCRIPT_DIR/.env.example"
     if [[ -f "$repo_config" ]]; then
         cp "$repo_config" "$config_dir/.env.example"
     fi

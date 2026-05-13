@@ -112,9 +112,12 @@ setup_monitoring() {
         return 1
     fi
 
-    # SCRIPT_DIR = repo/scripts/deploy, so repo_dir goes up two levels to repo root
-    local repo_dir="${SCRIPT_DIR%/*/*}"
-
+    # SCRIPT_DIR may be repo root (when sourced from deploy-desktop.sh) or
+    # scripts/deploy/ (when run standalone). Resolve to repo root robustly.
+    local repo_dir="$SCRIPT_DIR"
+    if [[ ! -f "$repo_dir/deploy-desktop.sh" ]]; then
+        repo_dir="$(cd "$SCRIPT_DIR/../.." && pwd -P)"
+    fi
     # Copy monitoring script
     local monitor_script="/usr/local/bin/session-monitor.sh"
     local repo_script="$repo_dir/scripts/session-monitor.sh"

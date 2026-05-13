@@ -71,7 +71,7 @@ setup_openclaw_config() {
     fi
 
     if [[ "$should_update" == "true" ]]; then
-        local repo_config="$(dirname "$SCRIPT_DIR")/config/openclaw-defaults.json"
+        local repo_config="$SCRIPT_DIR/config/openclaw-defaults.json"
         if [[ -f "$repo_config" ]]; then
             # Copy default config (tokens are now env references)
             cp "$repo_config" "$config_file"
@@ -86,7 +86,7 @@ setup_openclaw_config() {
                 repo_env_config="$temp_env_config"
                 log_info "Using environment-specific config from $temp_env_config"
             else
-                repo_env_config="$(dirname "$SCRIPT_DIR")/config/openclaw-env.json"
+                repo_env_config="$SCRIPT_DIR/config/openclaw-env.json"
                 if [[ -f "$repo_env_config" ]]; then
                     log_info "Using environment-specific config from repo"
                 else
@@ -178,7 +178,7 @@ EOF
     else
         # Even if main config exists, always sync models + aliases from defaults
         # This ensures new models/aliases are picked up on every deploy
-        local repo_config="$(dirname "$SCRIPT_DIR")/config/openclaw-defaults.json"
+        local repo_config="$SCRIPT_DIR/config/openclaw-defaults.json"
         if [[ -f "$repo_config" && -f "$config_file" ]]; then
             log_info "Syncing models and aliases from openclaw-defaults.json"
             python3 -c "
@@ -265,7 +265,7 @@ print('Merged environment config')
     fi
 
     if [[ ! -f "$models_file" ]]; then
-        local repo_models="$(dirname "$SCRIPT_DIR")/config/openclaw-models-sample.json"
+        local repo_models="$SCRIPT_DIR/config/openclaw-models-sample.json"
         if [[ -f "$repo_models" ]]; then
             cp "$repo_models" "$models_file"
             log_info "Copied OpenClaw models config"
@@ -273,7 +273,7 @@ print('Merged environment config')
     fi
 
     # Copy workspace AGENTS.md (global agent instructions)
-    local repo_agents="$(dirname "$SCRIPT_DIR")/config/openclaw/workspace/AGENTS.md"
+    local repo_agents="$SCRIPT_DIR/config/openclaw/workspace/AGENTS.md"
     local target_agents="$openclaw_dir/workspace/AGENTS.md"
     if [[ -f "$repo_agents" && ! -f "$target_agents" ]]; then
         mkdir -p "$openclaw_dir/workspace"
@@ -282,7 +282,7 @@ print('Merged environment config')
     fi
 
     # Copy skills (session-commands, etc.)
-    local repo_skills_dir="$(dirname "$SCRIPT_DIR")/config/openclaw/skills"
+    local repo_skills_dir="$SCRIPT_DIR/config/openclaw/skills"
     local target_skills_dir="$openclaw_dir/skills"
     if [[ -d "$repo_skills_dir" ]]; then
         mkdir -p "$target_skills_dir"
