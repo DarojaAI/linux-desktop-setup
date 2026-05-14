@@ -43,6 +43,11 @@ if [[ -f "/home/$TARGET_USER/.config/systemd/user/openclaw-gateway.service" ]]; 
         sleep 1
     done
 
+    # reset-failed clears any previous StartLimit (rate-limit) state so restart
+    # succeeds after the service failed repeatedly (e.g. bad config).
+    sudo -u "$TARGET_USER" XDG_RUNTIME_DIR="/run/user/$(id -u "$TARGET_USER")" \
+        systemctl --user reset-failed openclaw-gateway.service 2>/dev/null || true
+
     sudo -u "$TARGET_USER" XDG_RUNTIME_DIR="/run/user/$(id -u "$TARGET_USER")" \
         systemctl --user restart openclaw-gateway.service
 

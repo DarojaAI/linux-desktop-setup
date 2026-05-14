@@ -138,13 +138,17 @@ setup_openclaw_systemd_service() {
 Description=OpenClaw Gateway
 After=network-online.target
 Wants=network-online.target
-StartLimitBurst=5
-StartLimitIntervalSec=60
+# Aggressive rate-limiting: a bad config (e.g. invalid model string) causes
+# the process to crash immediately. Without tight limits, systemd restarts it
+# every ~15s forever, burning through Discord tokens with thousands of
+# gateway connection attempts.
+StartLimitBurst=3
+StartLimitIntervalSec=300
 
 [Service]
 ExecStart=$node_path $openclaw_path gateway --port 18789
-Restart=always
-RestartSec=5
+Restart=on-failure
+RestartSec=60
 RestartPreventExitStatus=78
 TimeoutStopSec=30
 TimeoutStartSec=30
@@ -208,6 +212,7 @@ EOF
     local systemd_ok=false
     if sudo -u "$TARGET_USER" systemctl --user daemon-reload 2>/dev/null && \
        sudo -u "$TARGET_USER" systemctl --user enable openclaw-gateway.service 2>/dev/null && \
+       sudo -u "$TARGET_USER" systemctl --user reset-failed openclaw-gateway.service 2>/dev/null && \
        sudo -u "$TARGET_USER" systemctl --user start openclaw-gateway.service 2>/dev/null; then
         sleep 3
         if sudo -u "$TARGET_USER" systemctl --user is-active openclaw-gateway.service 2>/dev/null; then
