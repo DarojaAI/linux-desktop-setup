@@ -219,38 +219,12 @@ EOF
         systemd_ok=true
     fi
 
+    # Every deploy target is an established VM with a running systemd user
+    # manager. If we can't enable the service here, something is wrong and
+    # we should fail rather than silently fall back to nohup.
     if [[ "$systemd_ok" != "true" ]]; then
-        # Fall back to supervised direct launch — needed when the systemd user manager
-        # isn't ready yet (fresh VM, SSH session, no active user session).
-        # We read env vars from the override file and pass them explicitly so the
-        # gateway has them at startup (no ${VAR} interpolation needed).
-        log_info "Systemd not available, starting gateway directly..."
-
-        # Read env vars from the override file we wrote above
-        if [[ -f "$override_file" ]]; then
-            while IFS= read -r line; do
-                [[ "$line" =~ ^Environment=([^=]+)=(.+)$ ]] && \
-                    export "${BASH_REMATCH[1]}=${BASH_REMATCH[2]}"
-            done < "$override_file"
-        fi
-
-        # Also pass the raw shell env vars so they take precedence
-        export OPENROUTER_API_KEY="$OPENROUTER_API_KEY" \
-               DISCORD_BOT_TOKEN="$DISCORD_BOT_TOKEN" \
-               ANTHROPIC_API_BASE="${ANTHROPIC_API_BASE:-}"
-
-        sudo -u "$TARGET_USER" XDG_RUNTIME_DIR="/run/user/$user_id" \
-            nohup openclaw gateway --port 18789 >> /var/log/openclaw-gateway.log 2>&1 &
-        local gateway_pid=$!
-
-        sleep 2
-        if kill -0 "$gateway_pid" 2>/dev/null; then
-            echo "$gateway_pid" > /var/run/openclaw-gateway.pid
-            log_info "OpenCLAW gateway started directly (PID: $gateway_pid)"
-        else
-            log_error "Gateway failed to start, check /var/log/openclaw-gateway.log"
-            return 1
-        fi
+        log_error "Could not enable systemd user service for OpenCLAW gateway"
+        return 1
     fi
 
     log_info "OpenCLAW systemd service created at $service_file"

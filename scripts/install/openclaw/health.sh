@@ -102,53 +102,47 @@ restart_with_backoff() {
     local delay=5
     local max_attempts=${MAX_RETRIES:-3}
 
-    # Try systemd first (works on established VMs with active user session)
-    if sudo -u "$TARGET_USER" XDG_RUNTIME_DIR="/run/user/$(id -u "$TARGET_USER")" \
-        systemctl --user list-units --type=service 2>/dev/null | grep -q openclaw-gateway; then
-        log_info "Restarting via systemd..."
-        sudo -u "$TARGET_USER" XDG_RUNTIME_DIR="/run/user/$(id -u "$TARGET_USER")" \
-            systemctl --user restart openclaw-gateway.service
-        sleep 3
-        if sudo -u "$TARGET_USER" XDG_RUNTIME_DIR="/run/user/$(id -u "$TARGET_USER")" \
-            systemctl --user is-active openclaw-gateway.service 2>/dev/null; then
-            log_info "Restart successful (systemd)"
-            return 0
-        fi
-        log_warn "Systemd restart appeared to succeed but service not active"
-    else
-        log_info "Systemd unavailable, restarting via nohup..."
+    # All VMs are established with systemd; check the unit file directly.
+    if [[ ! -f "/home/$TARGET_USER/.config/systemd/user/openclaw-gateway.service" ]]; then
+        log_warn "systemd unit file not found"
+        return 1
     fi
 
-    # Nohup fallback — needed when systemd user manager isn't accessible over SSH
+    log_info "Restarting via systemd..."
+    sudo -u "$TARGET_USER" XDG_RUNTIME_DIR="/run/user/$(id -u "$TARGET_USER")" \
+        openclaw gateway stop 2>/dev/null || true
+    sudo -u "$TARGET_USER" XDG_RUNTIME_DIR="/run/user/$(id -u "$TARGET_USER")" \
+        systemctl --user stop openclaw-gateway.service 2>/dev/null || true
+    pkill -x openclaw 2>/dev/null || true
+    fuser -k "$OPENCLAW_PORT"/tcp 2>/dev/null || true
+    rm -f "/run/user/$(id -u "$TARGET_USER")/openclaw-gateway.pid" 2>/dev/null || true
+    sleep 2
+
     while [[ $attempt -le $max_attempts ]]; do
-        log_info "Restart attempt $attempt/$max_attempts (waiting ${delay}s)"
-        sleep "$delay"
+        log_info "Restart attempt $attempt/$max_attempts"
 
-        # Kill existing gateway processes
-        pkill -f "openclaw gateway" 2>/dev/null || true
-        sleep 2
-
-        # Read tokens from the override file (same pattern as restart-openclaw.sh)
-        local override_file="/home/$TARGET_USER/.config/systemd/user/openclaw-gateway.service.d/override.conf"
-        if [[ -f "$override_file" ]]; then
-            while IFS= read -r line; do
-                [[ "$line" =~ ^Environment=([^=]+)=(.+)$ ]] && \
-                    export "${BASH_REMATCH[1]}=${BASH_REMATCH[2]}"
-            done < "$override_file"
-        fi
+        # Reset any previous start-limit-hit state
+        sudo -u "$TARGET_USER" XDG_RUNTIME_DIR="/run/user/$(id -u "$TARGET_USER")" \
+            systemctl --user reset-failed openclaw-gateway.service 2>/dev/null || true
 
         sudo -u "$TARGET_USER" XDG_RUNTIME_DIR="/run/user/$(id -u "$TARGET_USER")" \
-            nohup openclaw gateway --port "$OPENCLAW_PORT" >> /var/log/openclaw-gateway.log 2>&1 &
+            systemctl --user restart openclaw-gateway.service
 
-        sleep 5
+        sleep 2
 
-        if pgrep -f "openclaw gateway.*$OPENCLAW_PORT" > /dev/null; then
-            log_info "Restart successful on attempt $attempt"
-            return 0
-        fi
+        # Verify by port binding (is-active fails over non-interactive SSH)
+        for _ in {1..10}; do
+            if ss -tlnp | grep -q ":$OPENCLAW_PORT "; then
+                log_info "Restart successful (systemd)"
+                return 0
+            fi
+            sleep 1
+        done
 
+        log_warn "Port $OPENCLAW_PORT not bound after restart, retrying..."
         attempt=$((attempt + 1))
         delay=$((delay * 3))
+        sleep "$delay"
     done
 
     log_error "Restart failed after $max_attempts attempts"

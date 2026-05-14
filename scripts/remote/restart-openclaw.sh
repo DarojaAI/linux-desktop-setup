@@ -1,82 +1,31 @@
 #!/bin/bash
-# Restart OpenClaw gateway — handles both systemd and nohup fallback
-# Called from deploy-desktop.sh or GitHub Actions workflow
-
+# Restart OpenClaw gateway — systemd only.
+# All deploy targets are established VMs with a running systemd user manager.
+# The nohup fallback has been removed because it caused duplicate-process
+# races when the systemd-managed process started successfully but the script
+# falsely concluded it had failed (is-active doesn't work over SSH).
 set -euo pipefail
 
 TARGET_USER="${TARGET_USER:-desktopuser}"
-OVERRIDE_DIR="/home/$TARGET_USER/.config/systemd/user/openclaw-gateway.service.d"
-OVERRIDE_FILE="$OVERRIDE_DIR/override.conf"
-LOG_FILE="${LOG_FILE:-/var/log/openclaw-gateway.log}"
 
-# Try systemd first (works on established VMs with active user session)
-# We used to check with `list-units | grep -q`, but list-units only shows
-# ACTIVE units, and the `grep -q | systemctl` pipeline causes SIGPIPE (exit 141)
-# with `pipefail`, making the if evaluate to false.
-# Instead, check the unit FILE directly.
-if [[ -f "/home/$TARGET_USER/.config/systemd/user/openclaw-gateway.service" ]]; then
-    echo "[openclaw-restart] Restarting via systemd..."
-
-    # Stop first — ask openclaw to clean up its own lock files/PID state
-    # (systemd stop alone doesn't remove openclaw's internal runtime locks)
-    sudo -u "$TARGET_USER" XDG_RUNTIME_DIR="/run/user/$(id -u "$TARGET_USER")" \
-        openclaw gateway stop 2>/dev/null || true
-
-    sudo -u "$TARGET_USER" XDG_RUNTIME_DIR="/run/user/$(id -u "$TARGET_USER")" \
-        systemctl --user stop openclaw-gateway.service 2>/dev/null || true
-    sleep 2
-
-    # Belt-and-suspenders: also kill any stray process by exact name
-    # and by port. Node process.title is "openclaw", not "openclaw gateway",
-    # so -x (exact match) works; -f would match this script and kill itself.
-    pkill -x openclaw 2>/dev/null || true
-    fuser -k 18789/tcp 2>/dev/null || true
-
-    # Remove any stale openclaw lock files under the user runtime dir
-    rm -f "/run/user/$(id -u "$TARGET_USER")/openclaw-gateway.pid" 2>/dev/null || true
-
-    sleep 2
-
-    # Wait for port to be free before restarting
-    for _ in {1..10}; do
-        ss -tlnp | grep -q ":18789 " || break
-        sleep 1
-    done
-
-    # reset-failed clears any previous StartLimit (rate-limit) state so restart
-    # succeeds after the service failed repeatedly (e.g. bad config).
-    sudo -u "$TARGET_USER" XDG_RUNTIME_DIR="/run/user/$(id -u "$TARGET_USER")" \
-        systemctl --user reset-failed openclaw-gateway.service 2>/dev/null || true
-
-    sudo -u "$TARGET_USER" XDG_RUNTIME_DIR="/run/user/$(id -u "$TARGET_USER")" \
-        systemctl --user restart openclaw-gateway.service
-
-    # Verify systemd actually started it by checking the port is bound.
-    # Do NOT call systemctl --user is-active — it fails over non-interactive SSH
-    # because DBus is not available, causing a false fallback to nohup that
-    # conflicts with the systemd-managed process.
-    sleep 2
-    for _ in {1..10}; do
-        if ss -tlnp | grep -q ":18789 "; then
-            echo "[openclaw-restart] Done (systemd)"
-            exit 0
-        fi
-        sleep 1
-    done
-
-    echo "[openclaw-restart] systemd restart did not bind port within 10s — falling back to nohup"
+# Verify the unit file exists (created by deploy-desktop.sh / install.sh)
+if [[ ! -f "/home/$TARGET_USER/.config/systemd/user/openclaw-gateway.service" ]]; then
+    echo "[openclaw-restart] ERROR: systemd unit file not found"
+    exit 1
 fi
 
-# Fallback: direct nohup restart
-# Needed when systemd user manager isn't accessible over SSH
-echo "[openclaw-restart] systemd unavailable or failed, restarting via nohup..."
-
-# Ask openclaw to clean up its own locks before we take over via nohup
+# Stop first — ask openclaw to clean up its own lock files/PID state
 sudo -u "$TARGET_USER" XDG_RUNTIME_DIR="/run/user/$(id -u "$TARGET_USER")" \
     openclaw gateway stop 2>/dev/null || true
 
-# Kill by exact process name (safer than -f which matches this script)
+# Also stop via systemd (belt-and-suspenders)
+sudo -u "$TARGET_USER" XDG_RUNTIME_DIR="/run/user/$(id -u "$TARGET_USER")" \
+    systemctl --user stop openclaw-gateway.service 2>/dev/null || true
+
+# Kill any stray process by exact name (Node process.title is "openclaw")
 pkill -x openclaw 2>/dev/null || true
+
+# Kill anything holding the port
 fuser -k 18789/tcp 2>/dev/null || true
 
 # Remove stale lock files
@@ -84,28 +33,29 @@ rm -f "/run/user/$(id -u "$TARGET_USER")/openclaw-gateway.pid" 2>/dev/null || tr
 
 sleep 2
 
-# Wait for port to be free before restarting
+# Wait for port to be free
 for _ in {1..10}; do
     ss -tlnp | grep -q ":18789 " || break
     sleep 1
 done
-# Read tokens from the override file written by deploy-desktop.sh
-if [[ -f "$OVERRIDE_FILE" ]]; then
-    while IFS= read -r line; do
-        [[ "$line" =~ ^Environment=([^=]+)=(.+)$ ]] && \
-            export "${BASH_REMATCH[1]}=${BASH_REMATCH[2]}"
-    done < "$OVERRIDE_FILE"
-fi
 
+# Reset any previous start-limit-hit state
 sudo -u "$TARGET_USER" XDG_RUNTIME_DIR="/run/user/$(id -u "$TARGET_USER")" \
-    nohup openclaw gateway --port 18789 >> "$LOG_FILE" 2>&1 &
-GATEWAY_PID=$!
+    systemctl --user reset-failed openclaw-gateway.service 2>/dev/null || true
 
-sleep 3
-if kill -0 "$GATEWAY_PID" 2>/dev/null; then
-    echo "$GATEWAY_PID" > /var/run/openclaw-gateway.pid
-    echo "[openclaw-restart] Done (nohup, PID: $GATEWAY_PID)"
-else
-    echo "[openclaw-restart] ERROR: gateway failed to start"
-    exit 1
-fi
+# Restart via systemd
+sudo -u "$TARGET_USER" XDG_RUNTIME_DIR="/run/user/$(id -u "$TARGET_USER")" \
+    systemctl --user restart openclaw-gateway.service
+
+# Verify by port binding (is-active fails over non-interactive SSH)
+sleep 2
+for _ in {1..10}; do
+    if ss -tlnp | grep -q ":18789 "; then
+        echo "[openclaw-restart] Done (systemd)"
+        exit 0
+    fi
+    sleep 1
+done
+
+echo "[openclaw-restart] ERROR: systemd restart did not bind port 18789 within 10s"
+exit 1
