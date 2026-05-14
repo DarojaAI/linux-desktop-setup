@@ -10,10 +10,11 @@ OVERRIDE_FILE="$OVERRIDE_DIR/override.conf"
 LOG_FILE="${LOG_FILE:-/var/log/openclaw-gateway.log}"
 
 # Try systemd first (works on established VMs with active user session)
-# Use list-unit-files (not list-units) because list-units only shows ACTIVE units;
-# a stopped/inactive service won't match and we'll incorrectly fall through to nohup.
-if sudo -u "$TARGET_USER" XDG_RUNTIME_DIR="/run/user/$(id -u "$TARGET_USER")" \
-    systemctl --user list-unit-files --type=service 2>/dev/null | grep -q openclaw-gateway; then
+# We used to check with `list-units | grep -q`, but list-units only shows
+# ACTIVE units, and the `grep -q | systemctl` pipeline causes SIGPIPE (exit 141)
+# with `pipefail`, making the if evaluate to false.
+# Instead, check the unit FILE directly.
+if [[ -f "/home/$TARGET_USER/.config/systemd/user/openclaw-gateway.service" ]]; then
     echo "[openclaw-restart] Restarting via systemd..."
 
     # Stop first — ask openclaw to clean up its own lock files/PID state
