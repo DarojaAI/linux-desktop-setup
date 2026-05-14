@@ -77,55 +77,6 @@ setup_openclaw_config() {
             cp "$repo_config" "$config_file"
             chmod 644 "$config_file"
             log_info "Copied OpenClaw default config with env-based token resolution"
-
-            # Deep merge environment-specific config if it exists
-            # Check multiple locations: /tmp/config (from GitHub Actions), then repo config
-            local repo_env_config=""
-            local temp_env_config="/tmp/config/openclaw-env.json"
-
-            if [[ -f "$temp_env_config" ]]; then
-                repo_env_config="$temp_env_config"
-                log_info "Using environment-specific config from $temp_env_config"
-            else
-                repo_env_config="$SCRIPT_DIR/config/openclaw-env.json"
-                if [[ -f "$repo_env_config" ]]; then
-                    log_info "Using environment-specific config from repo"
-                else
-                    repo_env_config=""
-                fi
-            fi
-
-            if [[ -n "$repo_env_config" && -f "$repo_env_config" ]]; then
-                log_info "Merging environment-specific config from openclaw-env.json"
-                python3 -c "
-import json
-
-config_file = '$config_file'
-env_config = '$repo_env_config'
-
-with open(config_file, 'r') as f:
-    base = json.load(f)
-
-with open(env_config, 'r') as f:
-    env = json.load(f)
-
-def deep_merge(base, env):
-    for key, value in env.items():
-        if key in base and isinstance(base[key], dict) and isinstance(value, dict):
-            deep_merge(base[key], value)
-        else:
-            base[key] = value
-    return base
-
-deep_merge(base, env)
-
-with open(config_file, 'w') as f:
-    json.dump(base, f, indent=2)
-
-print('Merged environment config')
-"
-            chmod 644 "$config_file"
-            fi
         else
             # Create minimal config with env references
             cat > "$config_file" << 'EOF'
@@ -177,6 +128,55 @@ print('Merged environment config')
 EOF
             chmod 644 "$config_file"
             log_info "Created minimal OpenClaw config with env-based token resolution"
+        fi
+
+        # Deep merge environment-specific config if it exists
+        # (applies regardless of whether we used defaults or minimal)
+        local repo_env_config=""
+        local temp_env_config="/tmp/config/openclaw-env.json"
+
+        if [[ -f "$temp_env_config" ]]; then
+            repo_env_config="$temp_env_config"
+            log_info "Using environment-specific config from $temp_env_config"
+        else
+            repo_env_config="$SCRIPT_DIR/config/openclaw-env.json"
+            if [[ -f "$repo_env_config" ]]; then
+                log_info "Using environment-specific config from repo"
+            else
+                repo_env_config=""
+            fi
+        fi
+
+        if [[ -n "$repo_env_config" && -f "$repo_env_config" ]]; then
+            log_info "Merging environment-specific config from openclaw-env.json"
+            python3 -c "
+import json
+
+config_file = '$config_file'
+env_config = '$repo_env_config'
+
+with open(config_file, 'r') as f:
+    base = json.load(f)
+
+with open(env_config, 'r') as f:
+    env = json.load(f)
+
+def deep_merge(base, env):
+    for key, value in env.items():
+        if key in base and isinstance(base[key], dict) and isinstance(value, dict):
+            deep_merge(base[key], value)
+        else:
+            base[key] = value
+    return base
+
+deep_merge(base, env)
+
+with open(config_file, 'w') as f:
+    json.dump(base, f, indent=2)
+
+print('Merged environment config')
+"
+            chmod 644 "$config_file"
         fi
     else
         # Even if main config exists, always sync models + aliases from defaults
