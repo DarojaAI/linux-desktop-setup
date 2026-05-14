@@ -202,7 +202,7 @@ EOF
     user_id=$(id -u "$TARGET_USER")
     export XDG_RUNTIME_DIR="/run/user/$user_id"
 
-    # Stop any existing gateway processes (nohup zombies from previous broken deploys)
+    # Stop any existing gateway processes before setting up the unit file.
     log_info "Stopping any existing gateway process..."
     pkill -f "openclaw gateway" 2>/dev/null || true
     sleep 1
@@ -212,9 +212,9 @@ EOF
     # start, so we don't burn through StartLimitBurst with a redundant start attempt.
     log_info "Enabling systemd user service..."
     local systemd_ok=false
-    if sudo -u "$TARGET_USER" systemctl --user daemon-reload 2>/dev/null && \
-       sudo -u "$TARGET_USER" systemctl --user enable openclaw-gateway.service 2>/dev/null && \
-       sudo -u "$TARGET_USER" systemctl --user reset-failed openclaw-gateway.service 2>/dev/null; then
+    if sudo -u "$TARGET_USER" XDG_RUNTIME_DIR="/run/user/$user_id" systemctl --user daemon-reload 2>/dev/null && \
+       sudo -u "$TARGET_USER" XDG_RUNTIME_DIR="/run/user/$user_id" systemctl --user enable openclaw-gateway.service 2>/dev/null && \
+       sudo -u "$TARGET_USER" XDG_RUNTIME_DIR="/run/user/$user_id" systemctl --user reset-failed openclaw-gateway.service 2>/dev/null; then
         log_info "OpenCLAW gateway service enabled via systemd"
         systemd_ok=true
     fi
