@@ -107,7 +107,7 @@ setup_openclaw_config() {
   },
   "agents": {
     "defaults": {
-      "model": "openrouter/minimax/MiniMax-M2.7",
+      "model": "minimax/MiniMax-M2.7",
       "thinkingDefault": "minimal"
     }
   },
@@ -440,7 +440,7 @@ if not agent_exists:
     agent = {
         'id': repo_name,
         'name': repo_name,
-        'model': 'openrouter/minimax/MiniMax-M2.7',
+        'model': 'minimax/MiniMax-M2.7',
         'workspace': repo_dir,
         'agentDir': f'{openclaw_dir}/agents/{repo_name}/agent'
     }
