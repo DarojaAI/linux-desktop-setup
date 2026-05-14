@@ -14,26 +14,32 @@ if sudo -u "$TARGET_USER" XDG_RUNTIME_DIR="/run/user/$(id -u "$TARGET_USER")" \
     systemctl --user list-units --type=service 2>/dev/null | grep -q openclaw-gateway; then
     echo "[openclaw-restart] Restarting via systemd..."
 
-    # Stop first — this also kills any zombie nohup processes holding port 18789
-    # (systemd owns the service definition, so it has permission to kill them)
+    # Stop first — ask openclaw to clean up its own lock files/PID state
+    # (systemd stop alone doesn't remove openclaw's internal runtime locks)
+    sudo -u "$TARGET_USER" XDG_RUNTIME_DIR="/run/user/$(id -u "$TARGET_USER")" \
+        openclaw gateway stop 2>/dev/null || true
+
     sudo -u "$TARGET_USER" XDG_RUNTIME_DIR="/run/user/$(id -u "$TARGET_USER")" \
         systemctl --user stop openclaw-gateway.service 2>/dev/null || true
     sleep 2
-    # Also kill any stray nohup gateways (belt-and-suspenders)
-    # NOTE: Node.js sets process.title to "openclaw" (not "openclaw gateway"),
-    # so pkill -f "openclaw gateway" never matches. Use the actual process name.
-    # NOTE: Node.js sets process.title to "openclaw" (not "openclaw gateway").
-    # pkill -f "openclaw gateway" never matches. pkill -f "openclaw" matches
-    # this script's own cmdline and kills itself. Use -x for exact name only.
+
+    # Belt-and-suspenders: also kill any stray process by exact name
+    # and by port. Node process.title is "openclaw", not "openclaw gateway",
+    # so -x (exact match) works; -f would match this script and kill itself.
     pkill -x openclaw 2>/dev/null || true
-    # Also kill anything holding port 18789 (the actual check we care about)
     fuser -k 18789/tcp 2>/dev/null || true
-    sleep 1
+
+    # Remove any stale openclaw lock files under the user runtime dir
+    rm -f "/run/user/$(id -u "$TARGET_USER")/openclaw-gateway.pid" 2>/dev/null || true
+
+    sleep 2
+
     # Wait for port to be free before restarting
     for _ in {1..10}; do
         ss -tlnp | grep -q ":18789 " || break
         sleep 1
     done
+
     sudo -u "$TARGET_USER" XDG_RUNTIME_DIR="/run/user/$(id -u "$TARGET_USER")" \
         systemctl --user restart openclaw-gateway.service
 
@@ -53,11 +59,17 @@ fi
 # Needed when systemd user manager isn't accessible over SSH
 echo "[openclaw-restart] systemd unavailable or failed, restarting via nohup..."
 
-# NOTE: Node.js sets process.title to "openclaw" (not "openclaw gateway").
-# pkill -f "openclaw gateway" never matches. pkill -f "openclaw" matches
-# this script's own cmdline and kills itself. Use -x for exact name only.
+# Ask openclaw to clean up its own locks before we take over via nohup
+sudo -u "$TARGET_USER" XDG_RUNTIME_DIR="/run/user/$(id -u "$TARGET_USER")" \
+    openclaw gateway stop 2>/dev/null || true
+
+# Kill by exact process name (safer than -f which matches this script)
 pkill -x openclaw 2>/dev/null || true
 fuser -k 18789/tcp 2>/dev/null || true
+
+# Remove stale lock files
+rm -f "/run/user/$(id -u "$TARGET_USER")/openclaw-gateway.pid" 2>/dev/null || true
+
 sleep 2
 
 # Wait for port to be free before restarting
