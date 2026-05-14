@@ -19,11 +19,18 @@ if sudo -u "$TARGET_USER" XDG_RUNTIME_DIR="/run/user/$(id -u "$TARGET_USER")" \
     sudo -u "$TARGET_USER" XDG_RUNTIME_DIR="/run/user/$(id -u "$TARGET_USER")" \
         systemctl --user stop openclaw-gateway.service 2>/dev/null || true
     sleep 2
-
     # Also kill any stray nohup gateways (belt-and-suspenders)
-    pkill -f "openclaw gateway" 2>/dev/null || true
+    # NOTE: Node.js sets process.title to "openclaw" (not "openclaw gateway"),
+    # so pkill -f "openclaw gateway" never matches. Use the actual process name.
+    pkill -f "openclaw" 2>/dev/null || true
+    # Also kill by port if still holding 18789
+    fuser -k 18789/tcp 2>/dev/null || true
     sleep 1
-
+    # Wait for port to be free before restarting
+    for _ in {1..10}; do
+        ss -tlnp | grep -q ":18789 " || break
+        sleep 1
+    done
     sudo -u "$TARGET_USER" XDG_RUNTIME_DIR="/run/user/$(id -u "$TARGET_USER")" \
         systemctl --user restart openclaw-gateway.service
 
@@ -43,9 +50,14 @@ fi
 # Needed when systemd user manager isn't accessible over SSH
 echo "[openclaw-restart] systemd unavailable or failed, restarting via nohup..."
 
-pkill -f "openclaw gateway" 2>/dev/null || true
+pkill -f "openclaw" 2>/dev/null || true
+fuser -k 18789/tcp 2>/dev/null || true
 sleep 2
-
+# Wait for port to be free
+for _ in {1..10}; do
+    ss -tlnp | grep -q ":18789 " || break
+    sleep 1
+done
 # Read tokens from the override file written by deploy-desktop.sh
 if [[ -f "$OVERRIDE_FILE" ]]; then
     while IFS= read -r line; do
