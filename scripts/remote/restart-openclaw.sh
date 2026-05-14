@@ -22,8 +22,11 @@ if sudo -u "$TARGET_USER" XDG_RUNTIME_DIR="/run/user/$(id -u "$TARGET_USER")" \
     # Also kill any stray nohup gateways (belt-and-suspenders)
     # NOTE: Node.js sets process.title to "openclaw" (not "openclaw gateway"),
     # so pkill -f "openclaw gateway" never matches. Use the actual process name.
-    pkill -f "openclaw" 2>/dev/null || true
-    # Also kill by port if still holding 18789
+    # NOTE: Node.js sets process.title to "openclaw" (not "openclaw gateway").
+    # pkill -f "openclaw gateway" never matches. pkill -f "openclaw" matches
+    # this script's own cmdline and kills itself. Use -x for exact name only.
+    pkill -x openclaw 2>/dev/null || true
+    # Also kill anything holding port 18789 (the actual check we care about)
     fuser -k 18789/tcp 2>/dev/null || true
     sleep 1
     # Wait for port to be free before restarting
@@ -50,10 +53,14 @@ fi
 # Needed when systemd user manager isn't accessible over SSH
 echo "[openclaw-restart] systemd unavailable or failed, restarting via nohup..."
 
-pkill -f "openclaw" 2>/dev/null || true
+# NOTE: Node.js sets process.title to "openclaw" (not "openclaw gateway").
+# pkill -f "openclaw gateway" never matches. pkill -f "openclaw" matches
+# this script's own cmdline and kills itself. Use -x for exact name only.
+pkill -x openclaw 2>/dev/null || true
 fuser -k 18789/tcp 2>/dev/null || true
 sleep 2
-# Wait for port to be free
+
+# Wait for port to be free before restarting
 for _ in {1..10}; do
     ss -tlnp | grep -q ":18789 " || break
     sleep 1
