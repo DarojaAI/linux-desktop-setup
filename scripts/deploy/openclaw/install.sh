@@ -207,18 +207,16 @@ EOF
     pkill -f "openclaw gateway" 2>/dev/null || true
     sleep 1
 
-    # Try systemd first — this works on established VMs with a running user manager
-    log_info "Trying systemd user service..."
+    # Try systemd first — this works on established VMs with a running user manager.
+    # We only enable here; the deploy orchestration's restart step handles the actual
+    # start, so we don't burn through StartLimitBurst with a redundant start attempt.
+    log_info "Enabling systemd user service..."
     local systemd_ok=false
     if sudo -u "$TARGET_USER" systemctl --user daemon-reload 2>/dev/null && \
        sudo -u "$TARGET_USER" systemctl --user enable openclaw-gateway.service 2>/dev/null && \
-       sudo -u "$TARGET_USER" systemctl --user reset-failed openclaw-gateway.service 2>/dev/null && \
-       sudo -u "$TARGET_USER" systemctl --user start openclaw-gateway.service 2>/dev/null; then
-        sleep 3
-        if sudo -u "$TARGET_USER" systemctl --user is-active openclaw-gateway.service 2>/dev/null; then
-            log_info "OpenCLAW gateway started via systemd"
-            systemd_ok=true
-        fi
+       sudo -u "$TARGET_USER" systemctl --user reset-failed openclaw-gateway.service 2>/dev/null; then
+        log_info "OpenCLAW gateway service enabled via systemd"
+        systemd_ok=true
     fi
 
     if [[ "$systemd_ok" != "true" ]]; then
