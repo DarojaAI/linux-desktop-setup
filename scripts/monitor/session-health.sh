@@ -176,13 +176,24 @@ monitor_openclaw() {
     timestamp=$(date '+%Y-%m-%d %H:%M:%S')
 
     # Run health.sh as a subprocess — its set -e cannot exit the daemon
-    # The || true ensures the subprocess exit code doesn't propagate to us
-    if health_output=$(bash "$health_script" 2>&1 || true); then
-        echo "$timestamp [PASS] OpenClaw gateway healthy" >> "$health_log"
-    else
-        echo "$timestamp [FAIL] OpenClaw health check failed — self-healing attempted" >> "$health_log"
-        echo "  Health output: $health_output" >> "$health_log"
-    fi
+    local health_exit=0
+    health_output=$(bash "$health_script" 2>&1) || health_exit=$?
+
+    case $health_exit in
+        0)
+            echo "$timestamp [PASS] OpenClaw gateway healthy" >> "$health_log"
+            ;;
+        4)
+            # Auth failure — restart will never fix this. Escalate instead.
+            echo "$timestamp [AUTH_FAIL] Discord bot token INVALID (401) — manual fix required" >> "$health_log"
+            echo "  Health output: $health_output" >> "$health_log"
+            alert "DISCORD_AUTH_FAILURE" "Discord bot token invalid on $(hostname). Update DISCORD_BOT_TOKEN in GitHub secrets." "$timestamp"
+            ;;
+        *)
+            echo "$timestamp [FAIL] OpenClaw health check failed (exit $health_exit) — self-healing attempted" >> "$health_log"
+            echo "  Health output: $health_output" >> "$health_log"
+            ;;
+    esac
 
     return 0
 }

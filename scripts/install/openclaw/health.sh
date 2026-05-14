@@ -169,13 +169,28 @@ main() {
         exit_code=3
     fi
 
+    # Check Discord API auth — a 401 means the token is invalid and restarting
+    # will NEVER fix it. We must escalate, not spiral.
+    local discord_status
+    discord_status=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: Bot ${DISCORD_BOT_TOKEN:-}" \
+        "https://discord.com/api/v10/users/@me" --max-time 5 2>/dev/null) || discord_status="000"
+    if [[ "$discord_status" == "401" ]]; then
+        log_error "Discord bot token INVALID (401) — restart will not help. Update DISCORD_BOT_TOKEN in GitHub secrets."
+        exit_code=4
+    elif [[ "$discord_status" != "200" ]]; then
+        log_warn "Discord API returned $discord_status (transient, may recover on restart)"
+        [[ $exit_code -eq 0 ]] && exit_code=3
+    fi
+
     # Check process only if endpoint and log checks passed
     if [[ $exit_code -eq 0 ]] && ! check_process; then
         exit_code=1
     fi
 
-    # If any check failed, attempt restart
-    if [[ $exit_code -ne 0 ]]; then
+    # If any check failed, attempt restart — EXCEPT auth failures (exit 4)
+    if [[ $exit_code -eq 4 ]]; then
+        log_error "Health check CRITICAL: manual intervention required (invalid Discord token)"
+    elif [[ $exit_code -ne 0 ]]; then
         log_warn "Health checks failed (exit code $exit_code) — attempting self-heal..."
         if restart_with_backoff; then
             log_info "Self-heal: restart succeeded"
@@ -188,7 +203,6 @@ main() {
     fi
 
     return $exit_code
-}
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     main "$@"
