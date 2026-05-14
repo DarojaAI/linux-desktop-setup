@@ -51,16 +51,20 @@ if [[ -f "/home/$TARGET_USER/.config/systemd/user/openclaw-gateway.service" ]]; 
     sudo -u "$TARGET_USER" XDG_RUNTIME_DIR="/run/user/$(id -u "$TARGET_USER")" \
         systemctl --user restart openclaw-gateway.service
 
-    sleep 3
+    # Verify systemd actually started it by checking the port is bound.
+    # Do NOT call systemctl --user is-active — it fails over non-interactive SSH
+    # because DBus is not available, causing a false fallback to nohup that
+    # conflicts with the systemd-managed process.
+    sleep 2
+    for _ in {1..10}; do
+        if ss -tlnp | grep -q ":18789 "; then
+            echo "[openclaw-restart] Done (systemd)"
+            exit 0
+        fi
+        sleep 1
+    done
 
-    # Verify systemd actually started it — check active state, not just exit code
-    if sudo -u "$TARGET_USER" XDG_RUNTIME_DIR="/run/user/$(id -u "$TARGET_USER")" \
-        systemctl --user is-active openclaw-gateway.service 2>/dev/null; then
-        echo "[openclaw-restart] Done (systemd)"
-        exit 0
-    fi
-
-    echo "[openclaw-restart] systemd restart reported success but service not active — falling back to nohup"
+    echo "[openclaw-restart] systemd restart did not bind port within 10s — falling back to nohup"
 fi
 
 # Fallback: direct nohup restart
