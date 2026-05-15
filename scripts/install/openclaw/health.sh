@@ -6,6 +6,7 @@
 #   2 = endpoint fail
 #   3 = Discord transient issue (restart may help)
 #   4 = Discord auth failure (manual fix required — never restart)
+#   5 = OpenRouter auth failure (manual fix required — never restart)
 set -euo pipefail
 
 TARGET_USER="${TARGET_USER:-desktopuser}"
@@ -89,6 +90,61 @@ check_discord() {
 	fi
 }
 
+# ── openrouter api validation ──
+# A missing or invalid OpenRouter API key prevents ALL AI responses.
+# Restarting will NEVER fix this. Must update OPENROUTER_API_KEY.
+check_openrouter() {
+	local config_file="/home/$TARGET_USER/.openclaw/openclaw.json"
+	local api_key=""
+
+	# Extract key from systemd override (same as discord token logic)
+	if [[ -f "/home/$TARGET_USER/.config/systemd/user/openclaw-gateway.service.d/override.conf" ]]; then
+		api_key=$(grep "^Environment=OPENROUTER_API_KEY=" "/home/$TARGET_USER/.config/systemd/user/openclaw-gateway.service.d/override.conf" 2>/dev/null | cut -d= -f3- | tr -d '"' | head -1)
+	fi
+	if [[ -z "$api_key" ]]; then
+		api_key="${OPENROUTER_API_KEY:-}"
+	fi
+
+	if [[ -z "$api_key" ]]; then
+		log_error "OpenRouter check: FAIL — API key MISSING from systemd override and env"
+		log_error "  Fix: ensure OPENROUTER_API_KEY is in GitHub secrets and deploy inputs"
+		return 5
+	fi
+
+	local http_code
+	http_code=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: Bearer $api_key" \
+		"https://openrouter.ai/api/v1/models" --max-time 10 2>/dev/null) || http_code="000"
+
+	if [[ "$http_code" == "401" ]]; then
+		log_error "OpenRouter check: FAIL — API key INVALID (401)"
+		log_error "  Restart will NOT fix this. Update OPENROUTER_API_KEY in GitHub secrets."
+		return 5
+	elif [[ "$http_code" != "200" ]]; then
+		log_error "OpenRouter check: FAIL — API returned HTTP $http_code"
+		return 3
+	fi
+
+	# Check configured default model exists in catalog
+	if [[ -f "$config_file" ]]; then
+		local default_model
+		default_model=$(jq -r '.agents.defaults.model // empty' "$config_file" 2>/dev/null || true)
+		if [[ -n "$default_model" ]]; then
+			local lookup_model="$default_model"
+			if [[ "$lookup_model" == openrouter/* ]]; then
+				lookup_model="${lookup_model#openrouter/}"
+			fi
+			if ! curl -s -H "Authorization: Bearer $api_key" "https://openrouter.ai/api/v1/models" --max-time 15 2>/dev/null | \
+				jq -e --arg m "$lookup_model" '.data[]? | select(.id == $m)' > /dev/null 2>&1; then
+				log_warn "OpenRouter check: model '$default_model' not found in catalog"
+				return 3
+			fi
+		fi
+	fi
+
+	log_info "OpenRouter check: PASS (key valid, model present)"
+	return 0
+}
+
 # ── gateway log scan (RECENT only) ──
 # Only looks at the last 5 minutes of log entries to avoid false positives
 # from historical disconnects.
@@ -97,12 +153,9 @@ check_gateway_log() {
 
 	if [[ ! -f "$log_file" ]]; then
 		log_warn "Gateway log not found at $log_file — skipping log scan"
-		# If the log file is missing but Discord is configured, we should still
-		# check Discord API directly (already done in check_discord)
 		return 0
 	fi
 
-	# Find lines WITHIN the last 5 minutes (using journalctl timestamp format or ISO)
 	local recent_closes
 	recent_closes=$(grep -E "$(date -d '5 minutes ago' '+%Y-%m-%dT%H:'|sed 's/.$//')|$(date -d '5 minutes ago' '+%Y-%m-%d %H:'|sed 's/.$//')" "$log_file" 2>/dev/null | \
 		grep -c "Gateway websocket closed: 1006" || true)
@@ -112,7 +165,6 @@ check_gateway_log() {
 		return 3
 	fi
 
-	# Also check for recent auth failures in the log
 	local recent_auth_fail
 	recent_auth_fail=$(grep -E "$(date -d '5 minutes ago' '+%Y-%m-%dT%H:'|sed 's/.$//')|$(date -d '5 minutes ago' '+%Y-%m-%d %H:'|sed 's/.$//')" "$log_file" 2>/dev/null | \
 		grep -ci "authentication failed\|invalid token\|401\|unauthorized" || true)
@@ -161,7 +213,7 @@ restart_with_backoff() {
 				return 0
 			fi
 			sleep 1
-		done
+			done
 
 		log_warn "Port $OPENCLAW_PORT not bound after restart, retrying..."
 		attempt=$((attempt + 1))
@@ -198,6 +250,15 @@ main() {
 		[[ $exit_code -eq 0 ]] && exit_code=3
 	fi
 
+	# OpenRouter auth check — also CRITICAL and never recoverable by restart
+	local or_code=0
+	check_openrouter || or_code=$?
+	if [[ $or_code -eq 5 ]]; then
+		exit_code=5
+	elif [[ $or_code -ne 0 ]]; then
+		[[ $exit_code -eq 0 ]] && exit_code=3
+	fi
+
 	# Gateway log scan (recent only) for WebSocket disconnects/auth failures
 	local log_code=0
 	check_gateway_log || log_code=$?
@@ -207,11 +268,16 @@ main() {
 		[[ $exit_code -eq 0 ]] && exit_code=3
 	fi
 
-	# If auth failure (exit 4): escalate, NEVER restart
-	if [[ $exit_code -eq 4 ]]; then
+	# If auth failure (exit 4 or 5): escalate, NEVER restart
+	if [[ $exit_code -eq 4 || $exit_code -eq 5 ]]; then
 		log_error "=== Health check CRITICAL ==="
-		log_error "Discord authentication failed. This CANNOT be fixed by restart."
-		log_error "Action required: update DISCORD_BOT_TOKEN in GitHub secrets."
+		if [[ $exit_code -eq 4 ]]; then
+			log_error "Discord authentication failed. This CANNOT be fixed by restart."
+			log_error "Action required: update DISCORD_BOT_TOKEN in GitHub secrets."
+		else
+			log_error "OpenRouter authentication failed. This CANNOT be fixed by restart."
+			log_error "Action required: update OPENROUTER_API_KEY in GitHub secrets."
+		fi
 	# For other failures: attempt restart (restart-loop already blocked by rate limits)
 	elif [[ $exit_code -ne 0 ]]; then
 		log_warn "Health checks failed (exit code $exit_code) — attempting self-heal..."
