@@ -149,9 +149,9 @@ StartLimitIntervalSec=300
 ExecStart=$node_path $openclaw_path gateway --port 18789
 Restart=on-failure
 RestartSec=60
-RestartPreventExitStatus=78
+RestartPreventExitStatus=78 143
 TimeoutStopSec=30
-TimeoutStartSec=30
+TimeoutStartSec=300
 SuccessExitStatus=0 143
 KillMode=control-group
 

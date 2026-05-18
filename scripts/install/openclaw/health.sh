@@ -13,6 +13,11 @@ TARGET_USER="${TARGET_USER:-desktopuser}"
 OPENCLAW_PORT="${OPENCLAW_PORT:-18789}"
 MAX_RETRIES=3
 
+# Circuit breaker: prevent restart loops that burn Discord tokens
+CIRCUIT_BREAKER_FILE="/tmp/openclaw-health-restarts.state"
+CIRCUIT_BREAKER_MAX=3
+CIRCUIT_BREAKER_WINDOW=600  # 10 minutes in seconds
+
 # Source lib for logging
 _lib_sh_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../" && pwd -P)/scripts/deploy"
 source "${_lib_sh_dir}/lib.sh" 2>/dev/null || {
@@ -149,12 +154,8 @@ check_openrouter() {
 # Only looks at the last 5 minutes of log entries to avoid false positives
 # from historical disconnects.
 check_gateway_log() {
-	local log_file="${OPENCLAW_LOG_FILE:-/var/log/openclaw-gateway.log}"
-
-	if [[ ! -f "$log_file" ]]; then
-		log_warn "Gateway log not found at $log_file — skipping log scan"
-		return 0
-	fi
+	local log_file
+	log_file=$(get_openclaw_log_file) || return 0
 
 	local recent_closes
 	recent_closes=$(grep -E "$(date -d '5 minutes ago' '+%Y-%m-%dT%H:'|sed 's/.$//')|$(date -d '5 minutes ago' '+%Y-%m-%d %H:'|sed 's/.$//')" "$log_file" 2>/dev/null | \
@@ -173,8 +174,123 @@ check_gateway_log() {
 		return 4
 	fi
 
+	# Detect Discord gateway rate-limit backoff (restart will NOT help)
+	local recent_exits
+	recent_exits=$(grep -E "$(date -d '5 minutes ago' '+%Y-%m-%dT%H:'|sed 's/.$//')|$(date -d '5 minutes ago' '+%Y-%m-%d %H:'|sed 's/.$//')" "$log_file" 2>/dev/null | \
+		grep -c "channel exited: Failed to get gateway information" || true)
+	if [[ -n "$recent_exits" && "$recent_exits" -gt 2 ]]; then
+		log_warn "Discord gateway rate-limit detected ($recent_exits channel exits) � restart will NOT help"
+		return 3
+	fi
+
 	return 0
 }
+
+
+# ── Find the active OpenClaw log file ──
+get_openclaw_log_file() {
+	local log_dir="/tmp/openclaw"
+	local legacy_log="${OPENCLAW_LOG_FILE:-/var/log/openclaw-gateway.log}"
+
+	if [[ -d "$log_dir" ]]; then
+		local latest_log
+		latest_log=$(ls -t "$log_dir"/openclaw-*.log 2>/dev/null | head -1)
+		if [[ -n "$latest_log" ]]; then
+			echo "$latest_log"
+			return 0
+		fi
+	fi
+
+	if [[ -f "$legacy_log" ]]; then
+		echo "$legacy_log"
+		return 0
+	fi
+
+	return 1
+}
+
+# ── Circuit breaker: stop restart loops that burn Discord tokens ──
+# After cooldown (15 min), permits ONE recovery restart so the gateway isn't
+# permanently stuck dead after a transient Discord rate-limit expires.
+check_circuit_breaker() {
+	local now
+	now=$(date +%s)
+	local restarts=()
+	local last_restart=0
+
+	if [[ -f "$CIRCUIT_BREAKER_FILE" ]]; then
+		while IFS= read -r line; do
+			[[ -n "$line" ]] && restarts+=("$line")
+		done < "$CIRCUIT_BREAKER_FILE"
+	fi
+
+	# Prune entries outside the window, track most recent
+	local valid=()
+	for ts in "${restarts[@]}"; do
+		if [[ $((now - ts)) -lt $CIRCUIT_BREAKER_WINDOW ]]; then
+			valid+=("$ts")
+		fi
+		if [[ "$ts" -gt "$last_restart" ]]; then
+			last_restart="$ts"
+		fi
+	done
+
+	if [[ ${#valid[@]} -gt 0 ]]; then
+		printf "%s\n" "${valid[@]}" > "$CIRCUIT_BREAKER_FILE"
+	else
+		: > "$CIRCUIT_BREAKER_FILE"
+	fi
+
+	local cooldown=900  # 15 minutes
+	if [[ ${#valid[@]} -ge $CIRCUIT_BREAKER_MAX ]]; then
+		if [[ $((now - last_restart)) -gt $cooldown ]]; then
+			log_warn "CIRCUIT BREAKER: cooldown elapsed ($(( (now - last_restart) / 60 ))m) — allowing ONE recovery restart"
+			# Drop oldest entry so we can restart once
+			local new_valid=("${valid[@]:1}")
+			if [[ ${#new_valid[@]} -gt 0 ]]; then
+				printf "%s\n" "${new_valid[@]}" > "$CIRCUIT_BREAKER_FILE"
+			else
+				: > "$CIRCUIT_BREAKER_FILE"
+			fi
+			return 0
+		fi
+		log_error "CIRCUIT BREAKER: ${#valid[@]} restarts in ${CIRCUIT_BREAKER_WINDOW}s — auto-restart DISABLED"
+		return 1
+	fi
+
+	return 0
+}
+
+record_restart() {
+	date +%s >> "$CIRCUIT_BREAKER_FILE"
+}
+
+# ── Check if Discord WebSocket actually connected ──
+check_discord_websocket_ready() {
+	local log_file
+	log_file=$(get_openclaw_log_file) || return 0
+
+	local last_config_line
+	last_config_line=$(grep -n "loading configuration" "$log_file" 2>/dev/null | tail -1 | cut -d: -f1)
+	if [[ -z "$last_config_line" ]]; then
+		return 0
+	fi
+
+	local total_lines tail_lines startup_tail
+	total_lines=$(wc -l < "$log_file")
+	tail_lines=$((total_lines - last_config_line + 1))
+	startup_tail=$(tail -n "$tail_lines" "$log_file" 2>/dev/null)
+
+	if echo "$startup_tail" | grep -q "awaiting gateway readiness"; then
+		if ! echo "$startup_tail" | grep -q "gateway ready"; then
+			log_error "Discord WebSocket STUCK: 'awaiting gateway readiness' but NO 'gateway ready'"
+			return 3
+		fi
+	fi
+
+	return 0
+}
+
 
 # ── restart with backoff (does NOT restart on auth failures) ──
 restart_with_backoff() {

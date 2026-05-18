@@ -195,8 +195,11 @@ EOF
     else
         log_warn "Failed to install session monitoring service"
     fi
+	# Restart the service so it picks up any updated scripts
+	log_info "Restarting session monitor service..."
+	systemctl restart xrdp-session-monitor.service 2>/dev/null || true
 
-    log_info "Session monitoring configured"
+	log_info "Session monitoring configured"
 }
 
 # Setup GNOME extensions
