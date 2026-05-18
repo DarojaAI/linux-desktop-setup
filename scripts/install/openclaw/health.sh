@@ -394,9 +394,24 @@ main() {
 			log_error "OpenRouter authentication failed. This CANNOT be fixed by restart."
 			log_error "Action required: update OPENROUTER_API_KEY in GitHub secrets."
 		fi
-	# For other failures: attempt restart (restart-loop already blocked by rate limits)
+	# Check Discord WebSocket actually connected (REST 200 ≠ gateway ready)
+	local ws_result=0
+	if [[ $exit_code -eq 0 ]]; then
+		check_discord_websocket_ready || ws_result=1
+		if [[ $ws_result -ne 0 ]]; then
+			log_warn "Gateway log indicates Discord WebSocket STUCK"
+			exit_code=3
+		fi
+	fi
+
+	# For other failures: attempt restart (unless circuit breaker is open)
 	elif [[ $exit_code -ne 0 ]]; then
+		if ! check_circuit_breaker; then
+			log_error "Self-heal BLOCKED by circuit breaker — gateway will NOT be restarted"
+			return 1
+		fi
 		log_warn "Health checks failed (exit code $exit_code) — attempting self-heal..."
+		record_restart
 		if restart_with_backoff; then
 			log_info "Self-heal: restart succeeded"
 			exit_code=0
