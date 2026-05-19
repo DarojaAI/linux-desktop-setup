@@ -98,6 +98,16 @@ EOF
 
     chown -R "$TARGET_USER:$TARGET_USER" "$target_home/.config"
 
+    # Also write the key to ~/.openclaw/.env so the gateway daemon can
+    # resolve it via openclaw's env mechanism (auth-profiles.json is not
+    # created for non-interactive deployments).
+    cat > "$target_home/.openclaw/.env" << EOF
+OPENROUTER_API_KEY=$api_key
+EOF
+    chown "$TARGET_USER:$TARGET_USER" "$target_home/.openclaw/.env"
+    chmod 600 "$target_home/.openclaw/.env"
+    log_info "OpenClaw env file created at $target_home/.openclaw/.env"
+
     # Note: daemon-reload and restart happen in setup_openclaw_systemd_service
     # which runs after this function in the deploy order. Writing the override
     # file before the service exists is fine — systemd picks it up on reload.
