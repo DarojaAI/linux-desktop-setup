@@ -42,6 +42,7 @@ done
 
 # Source all modules
 source "$SCRIPT_DIR/scripts/deploy/lib.sh"
+source "$SCRIPT_DIR/scripts/deploy/baseline.sh"
 source "$SCRIPT_DIR/scripts/deploy/system.sh"
 source "$SCRIPT_DIR/scripts/deploy/dev-tools.sh"
 source "$SCRIPT_DIR/scripts/deploy/ai-tools.sh"
@@ -82,7 +83,7 @@ main() {
 
     # Opt-out flags: set SKIP_<GROUP>=true to disable a category
     # e.g. sudo SKIP_AI_TOOLS=true bash deploy-desktop.sh
-    : "${SKIP_SYSTEM:=false}"  "${SKIP_DEV_TOOLS:=false}"  "${SKIP_AI_TOOLS:=false}"
+    : "${SKIP_BASELINE:=false}"  "${SKIP_SYSTEM:=false}"  "${SKIP_DEV_TOOLS:=false}"  "${SKIP_AI_TOOLS:=false}"
     : "${SKIP_CONFIG:=false}"  "${SKIP_MONITORING:=false}"  "${SKIP_OPTIONAL:=false}"
 
     log_info "Starting Remote Desktop Deployment v$SCRIPT_VERSION"
@@ -93,6 +94,11 @@ main() {
 
     check_root
     detect_ubuntu_version
+
+    # Baseline hardening (idempotent, safe to re-run)
+    if [[ "${SKIP_BASELINE:-false}" != "true" ]]; then
+        configure_system_baseline
+    fi
 
     # System setup
     if [[ "${SKIP_SYSTEM:-false}" != "true" ]]; then

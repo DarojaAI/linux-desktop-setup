@@ -9,6 +9,7 @@ set -euo pipefail
 # Paths are relative to this file's location (scripts/deploy/)
 _aggregator_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 
+source "${_aggregator_dir}/baseline.sh"
 source "${_aggregator_dir}/system.sh"
 source "${_aggregator_dir}/dev-tools.sh"
 source "${_aggregator_dir}/desktop-environment.sh"
