@@ -10,56 +10,93 @@ _lib_sh_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 source "$_lib_sh_dir/lib.sh"
 
 setup_openclaw_lock_config() {
-    log_step "Setting up OpenCLAW config lock script..."
+	log_step "Setting up OpenCLAW config lock script..."
 
-    local lock_script="/usr/local/bin/openclaw-lock-config.sh"
+	local lock_script="/usr/local/bin/openclaw-lock-config.sh"
 
-    cat > "$lock_script" << 'EOF'
+	cat > "$lock_script" << 'EOF'
 #!/bin/bash
 # Locks or unlocks the OpenCLAW config file
+# Includes checksum drift detection
 
 set -euo pipefail
 
 CONFIG_FILE="/home/desktopuser/.openclaw/openclaw.json"
 ROOT_CONFIG_FILE="/root/.openclaw/openclaw.json"
+CHECKSUM_FILE="/home/desktopuser/.openclaw/.config.checksum"
 
 show_usage() {
-    echo "Usage: $0 [lock|unlock|status]"
-    exit 1
+	echo "Usage: $0 [lock|unlock|status]"
+	exit 1
 }
 
 get_perms() { stat -c "%a" "$CONFIG_FILE" 2>/dev/null || echo "none"; }
 
+store_checksum() {
+	local checksum
+	checksum=$(md5sum "$CONFIG_FILE" | cut -d' ' -f1)
+	echo "$checksum" > "$CHECKSUM_FILE"
+	chown desktopuser:desktopuser "$CHECKSUM_FILE"
+	echo "Checksum stored: $checksum"
+}
+
+verify_checksum() {
+	if [[ ! -f "$CHECKSUM_FILE" ]]; then
+		echo "No checksum on file — storing initial checksum"
+		store_checksum
+		return 0
+	fi
+	local stored current
+	stored=$(cat "$CHECKSUM_FILE")
+	current=$(md5sum "$CONFIG_FILE" | cut -d' ' -f1)
+	if [[ "$stored" != "$current" ]]; then
+		echo "WARNING: Config drift detected!"
+		echo "  Stored:  $stored"
+		echo "  Current: $current"
+		return 1
+	fi
+	echo "Checksum verified: OK"
+	return 0
+}
+
 do_status() {
-    local perms; perms=$(get_perms)
-    echo "Config: $CONFIG_FILE  Permissions: $perms"
-    case "$perms" in
-        444) echo "Status: LOCKED (read-only)" ;;
-        644) echo "Status: UNLOCKED (writable)" ;;
-        *)   echo "Status: UNKNOWN" ;;
-    esac
+	local perms; perms=$(get_perms)
+	echo "Config: $CONFIG_FILE  Permissions: $perms"
+	case "$perms" in
+		444) echo "Status: LOCKED (read-only)" ;;
+		644) echo "Status: UNLOCKED (writable)" ;;
+		*)   echo "Status: UNKNOWN" ;;
+	esac
+	if [[ -f "$CHECKSUM_FILE" ]]; then
+		echo "Checksum: $(cat "$CHECKSUM_FILE")"
+	else
+		echo "Checksum: none stored"
+	fi
 }
 
 do_lock() {
-    chmod 444 "$CONFIG_FILE" && chown desktopuser:desktopuser "$CONFIG_FILE"
-    chmod 444 "$ROOT_CONFIG_FILE" && chown root:root "$ROOT_CONFIG_FILE"
-    echo "Config locked"; do_status
+	chmod 444 "$CONFIG_FILE" && chown desktopuser:desktopuser "$CONFIG_FILE"
+	chmod 444 "$ROOT_CONFIG_FILE" && chown root:root "$ROOT_CONFIG_FILE"
+	store_checksum
+	echo "Config locked"; do_status
 }
 
 do_unlock() {
-    chmod 644 "$CONFIG_FILE" && chown desktopuser:desktopuser "$CONFIG_FILE"
-    chmod 644 "$ROOT_CONFIG_FILE" && chown root:root "$ROOT_CONFIG_FILE"
-    echo "Config unlocked"; do_status
+	verify_checksum || true
+	chmod 644 "$CONFIG_FILE" && chown desktopuser:desktopuser "$CONFIG_FILE"
+	chmod 644 "$ROOT_CONFIG_FILE" && chown root:root "$ROOT_CONFIG_FILE"
+	echo "Config unlocked"; do_status
 }
 
 case "${1:-status}" in
-    lock) do_lock ;; unlock) do_unlock ;; status) do_status ;; *) show_usage ;;
+	lock) do_lock ;; unlock) do_unlock ;; status) do_status ;; *) show_usage ;;
 esac
 EOF
 
-    chmod +x "$lock_script"
-    log_info "OpenCLAW lock config script created at $lock_script"
+	chmod +x "$lock_script"
+	log_info "OpenCLAW lock config script created at $lock_script"
 }
+
 
 setup_openclaw_validate_config() {
     log_step "Setting up OpenCLAW config validation script..."
@@ -264,5 +301,84 @@ EOF
     chmod +x "$change_request_script"
     log_info "OpenCLAW change request governance script created at $change_request_script"
 }
+store_config_checksum() {
+	local config_file="/home/$TARGET_USER/.openclaw/openclaw.json"
+	local checksum_file="/home/$TARGET_USER/.openclaw/.config.checksum"
 
-export -f setup_openclaw_lock_config setup_openclaw_validate_config setup_openclaw_backup_config setup_openclaw_change_request
+	if [[ ! -f "$config_file" ]]; then
+		log_error "Config file not found: $config_file"
+		return 1
+	fi
+
+	local checksum
+	checksum=$(md5sum "$config_file" | cut -d' ' -f1)
+	echo "$checksum" > "$checksum_file"
+	chown "$TARGET_USER:$TARGET_USER" "$checksum_file"
+
+	log_info "Config checksum stored: $checksum"
+	return 0
+}
+
+verify_config_checksum() {
+	local config_file="/home/$TARGET_USER/.openclaw/openclaw.json"
+	local checksum_file="/home/$TARGET_USER/.openclaw/.config.checksum"
+
+	if [[ ! -f "$checksum_file" ]]; then
+		log_warn "No checksum file found — storing initial checksum"
+		store_config_checksum
+		return 0
+	fi
+
+	local stored_checksum current_checksum
+	stored_checksum=$(cat "$checksum_file")
+	current_checksum=$(md5sum "$config_file" | cut -d' ' -f1)
+
+	if [[ "$stored_checksum" != "$current_checksum" ]]; then
+		log_error "Config drift detected!"
+		log_error "  Stored:  $stored_checksum"
+		log_error "  Current: $current_checksum"
+		return 1
+	fi
+
+	log_info "Config checksum verified: OK"
+	return 0
+}
+
+auto_restore_config() {
+	local config_file="/home/$TARGET_USER/.openclaw/openclaw.json"
+	local config_dir="/home/$TARGET_USER/.openclaw"
+
+	if [[ ! -d "$config_dir" ]]; then
+		log_error "No config directory found: $config_dir"
+		return 1
+	fi
+
+	# Find most recent backup (matches naming from backup script)
+	local latest_backup
+	latest_backup=$(ls -t "$config_dir"/openclaw-backup.*.json 2>/dev/null | head -1)
+
+	if [[ -z "$latest_backup" ]]; then
+		log_error "No backups found in $config_dir"
+		return 1
+	fi
+
+	log_info "Restoring config from: $latest_backup"
+
+	# Unlock config if locked
+	if [[ -f "$config_file.lock" ]]; then
+		rm -f "$config_file.lock"
+	fi
+
+	cp "$latest_backup" "$config_file"
+	chown "$TARGET_USER:$TARGET_USER" "$config_file"
+	chmod 444 "$config_file"
+
+	# Store new checksum
+	store_config_checksum
+
+	log_info "Config auto-restored from backup"
+	return 0
+}
+
+
+export -f setup_openclaw_lock_config setup_openclaw_validate_config setup_openclaw_backup_config setup_openclaw_change_request store_config_checksum verify_config_checksum auto_restore_config
