@@ -150,7 +150,8 @@ generate_report() {
         echo ""
         echo "=== Session Monitor Report - $timestamp ==="
         echo "Active Xvnc Sessions:"
-        ps aux | grep "[X]vnc" | awk '{print $2, $3"% CPU", $4"% MEM", $11}'
+        local sessions; sessions=$(ps aux | grep "[X]vnc" || true)
+        echo "$sessions" | awk '{print $2, $3"% CPU", $4"% MEM", $11}'
         echo ""
         echo "Memory Usage Summary:"; free -h
         echo ""

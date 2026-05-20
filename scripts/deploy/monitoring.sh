@@ -190,7 +190,7 @@ EOF
     fi
 	# Restart the service so it picks up any updated scripts
 	log_info "Restarting session monitor service..."
-	systemctl restart xrdp-session-monitor.service 2>/dev/null || true
+systemctl restart openclaw-session-monitor.service 2>/dev/null || true
 
 	log_info "Session monitoring configured"
 }
