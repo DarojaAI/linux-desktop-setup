@@ -1,7 +1,10 @@
 #!/bin/bash
 # Session health monitoring: process checks, crash log scanning, GitHub issue creation
+#
+# L2 responsibility: xrdp session health only.
+# OpenClAW gateway health is handled by L3 (openclaw-watchdog.timer + openclaw-health-probe.timer).
 
-set -uo pipefail
+set -euo pipefail
 
 MONITOR_LOG="${MONITOR_LOG:-/var/log/xrdp/session-monitor.log}"
 ALERT_LOG="${ALERT_LOG:-/var/log/xrdp/session-alerts.log}"
@@ -147,55 +150,14 @@ generate_report() {
         echo ""
         echo "=== Session Monitor Report - $timestamp ==="
         echo "Active Xvnc Sessions:"
-        ps aux | grep "[X]vnc" | awk '{print $2, $3"% CPU", $4"% MEM", $11}' || true
+        ps aux | grep "[X]vnc" | awk '{print $2, $3"% CPU", $4"% MEM", $11}'
         echo ""
         echo "Memory Usage Summary:"; free -h
         echo ""
         echo "Disk Usage:"; df -h /
         echo ""
-        echo "Recent Alerts:"; tail -10 "$ALERT_LOG" 2>/dev/null || true
+        echo "Recent Alerts:"; tail -10 "$ALERT_LOG" 2>/dev/null || echo "  (none)"
     } >> "$MONITOR_LOG" 2>&1
 }
 
-monitor_openclaw() {
-    # health.sh lives alongside the monitor scripts in /usr/local/bin/monitor/
-    # Run as subprocess to isolate its set -euo pipefail from the daemon shell
-    local health_script="/usr/local/bin/monitor/health.sh"
-
-    if [[ ! -f "$health_script" ]]; then
-        log_warn "OpenClaw health script not found at $health_script"
-        return 0
-    fi
-
-    local health_log="/var/log/openclaw-health.log"
-    mkdir -p "$(dirname "$health_log")"
-    touch "$health_log"
-    chmod 644 "$health_log"
-
-    local timestamp
-    timestamp=$(date '+%Y-%m-%d %H:%M:%S')
-
-    # Run health.sh as a subprocess — its set -e cannot exit the daemon
-    local health_exit=0
-    health_output=$(bash "$health_script" 2>&1) || health_exit=$?
-
-    case $health_exit in
-        0)
-            echo "$timestamp [PASS] OpenClaw gateway healthy" >> "$health_log"
-            ;;
-        4)
-            # Auth failure — restart will never fix this. Escalate instead.
-            echo "$timestamp [AUTH_FAIL] Discord bot token INVALID (401) — manual fix required" >> "$health_log"
-            echo "  Health output: $health_output" >> "$health_log"
-            alert "DISCORD_AUTH_FAILURE" "Discord bot token invalid on $(hostname). Update DISCORD_BOT_TOKEN in GitHub secrets." "$timestamp"
-            ;;
-        *)
-            echo "$timestamp [FAIL] OpenClaw health check failed (exit $health_exit) — self-healing attempted" >> "$health_log"
-            echo "  Health output: $health_output" >> "$health_log"
-            ;;
-    esac
-
-    return 0
-}
-
-export -f init_logs monitor_active_sessions check_process_health alert create_github_issue monitor_crash_logs generate_report monitor_openclaw
+export -f init_logs monitor_active_sessions check_process_health alert create_github_issue monitor_crash_logs generate_report

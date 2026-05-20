@@ -22,11 +22,9 @@ run_test() {
     init_logs
     monitor_active_sessions
     monitor_crash_logs
-    monitor_openclaw
     generate_report
     echo ""; echo "Monitor log (last 20 lines):"; tail -20 "$MONITOR_LOG"
     echo ""; echo "Alert log (last 20 lines):";  tail -20 "$ALERT_LOG"
-    echo ""; echo "OpenClaw health log (last 20 lines):"; tail -20 "/var/log/openclaw-health.log" 2>/dev/null || echo "  (none)"
 }
 
 run_daemon() {
@@ -35,7 +33,6 @@ run_daemon() {
     while true; do
         monitor_active_sessions
         monitor_crash_logs
-        monitor_openclaw
         cleanup_orphaned_sessions
         generate_report
         sleep 30

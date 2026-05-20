@@ -26,7 +26,6 @@ cleanup_orphaned_sessions
 while true; do
     monitor_active_sessions
     monitor_crash_logs
-    monitor_openclaw
     cleanup_orphaned_sessions
     generate_report
     sleep 30
@@ -70,7 +69,6 @@ CONFIG_EOF
     declare -f monitor_active_sessions >> /var/lib/xrdp/session-monitor-config.sh
     declare -f monitor_crash_logs >> /var/lib/xrdp/session-monitor-config.sh
     declare -f generate_report >> /var/lib/xrdp/session-monitor-config.sh
-    declare -f monitor_openclaw >> /var/lib/xrdp/session-monitor-config.sh
 
     systemctl daemon-reload
     systemctl enable xrdp-session-monitor.service
