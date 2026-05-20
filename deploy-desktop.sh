@@ -132,6 +132,14 @@ main() {
 
     # AI tools (OpenCLAW, OpenRouter)
     if [[ "${SKIP_AI_TOOLS:-false}" != "true" ]]; then
+        # Unlock config before openclaw operations — gateway may need to write
+        # during startup (e.g., auto-restore from .last-good after config drift)
+        local openclaw_config="/home/$TARGET_USER/.openclaw/openclaw.json"
+        if [[ -f "$openclaw_config" ]]; then
+            chmod 644 "$openclaw_config" 2>/dev/null || true
+            log_info "Unlocked OpenClaw config for deploy"
+        fi
+
         install_openclaw
         setup_openclaw_wrapper
         setup_openclaw_config
@@ -143,6 +151,7 @@ main() {
         setup_openclaw_systemd_service
     fi
 
+
     # Post-deploy validation
     if [[ "${SKIP_OPENCLAW_VALIDATION:-false}" != "true" ]]; then
         local smoke_test="$SCRIPT_DIR/tests/smoke-openclaw.sh"
@@ -151,6 +160,14 @@ main() {
             bash "$smoke_test" || log_warn "Smoke test had failures"
         fi
     fi
+
+    # Lock OpenClaw config after deploy is complete and gateway is stable
+    local openclaw_config="/home/$TARGET_USER/.openclaw/openclaw.json"
+    if [[ -f "$openclaw_config" ]]; then
+        chmod 444 "$openclaw_config" 2>/dev/null || true
+        log_info "Locked OpenClaw config after deploy"
+    fi
+
 
     # Configuration
     if [[ "${SKIP_CONFIG:-false}" != "true" ]]; then
