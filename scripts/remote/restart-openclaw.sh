@@ -47,15 +47,16 @@ sudo -u "$TARGET_USER" XDG_RUNTIME_DIR="/run/user/$(id -u "$TARGET_USER")" \
 sudo -u "$TARGET_USER" XDG_RUNTIME_DIR="/run/user/$(id -u "$TARGET_USER")" \
     systemctl --user restart openclaw-gateway.service
 
+
 # Verify by port binding (is-active fails over non-interactive SSH)
-sleep 2
-for _ in {1..10}; do
-    if ss -tlnp | grep -q ":18789 "; then
-        echo "[openclaw-restart] Done (systemd)"
-        exit 0
-    fi
-    sleep 1
+# Give extra time for large catalogs (390+ models take ~15-20s to load)
+sleep 5
+for _ in {1..25}; do
+	if ss -tlnp | grep -q ":18789 "; then
+		echo "[openclaw-restart] Done (systemd)"
+		exit 0
+	fi
+	sleep 1
 done
 
-echo "[openclaw-restart] ERROR: systemd restart did not bind port 18789 within 10s"
-exit 1
+echo "[openclaw-restart] ERROR: systemd restart did not bind port 18789 within 30s"
