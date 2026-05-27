@@ -260,8 +260,9 @@ install_ghcli() {
 install_bun() {
     log_step "Installing Bun runtime..."
 
-    # Check if already installed
-    if command -v bun &> /dev/null; then
+    # Check if already installed — check both PATH and default location
+    # since ~/.bun/bin may not be on PATH in a fresh shell
+    if command -v bun &> /dev/null || [[ -x "$HOME/.bun/bin/bun" ]]; then
         log_warn "Bun already installed"
         return 0
     fi
@@ -272,13 +273,29 @@ install_bun() {
         return 1
     fi
 
-    # Source bun environment
+    # Add bun to PATH in bashrc only if not already present
     if [[ -f "$HOME/.bashrc" ]]; then
-        if ! grep -q "bun.sh" "$HOME/.bashrc"; then
-            echo 'export BUN_INSTALL="$HOME/.bun"' >> "$HOME/.bashrc"
-            echo 'export PATH="$BUN_INSTALL/bin:$PATH"' >> "$HOME/.bashrc"
+        if ! grep -q 'BUN_INSTALL' "$HOME/.bashrc"; then
+            {
+                echo ''
+                echo '# bun'
+                echo 'export BUN_INSTALL="$HOME/.bun"'
+                echo 'export PATH="$BUN_INSTALL/bin:$PATH"'
+            } >> "$HOME/.bashrc"
         fi
     fi
+
+    # Export for current session
+    export BUN_INSTALL="$HOME/.bun"
+    export PATH="$BUN_INSTALL/bin:$PATH"
+
+    # Verify installation
+    if ! command -v bun &> /dev/null; then
+        log_error "Bun installation failed"
+        return 1
+    fi
+
+    log_info "Bun installed successfully"
 
     # Export for current session
     export BUN_INSTALL="$HOME/.bun"
