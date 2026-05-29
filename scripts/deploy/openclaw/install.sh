@@ -180,6 +180,8 @@ Environment=OPENROUTER_API_KEY=$api_key
 Environment=HOME=$target_home
 Environment=XDG_RUNTIME_DIR=/run/user/$user_id
 Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$target_home/.local/bin:$target_home/.npm-global/bin
+Environment=OPENCLAW_NO_RESPAWN=1
+Environment=NODE_COMPILE_CACHE=/var/tmp/openclaw-compile-cache
 EOF
 
     # Add Discord token if available
@@ -188,6 +190,8 @@ EOF
     fi
 
     # Set ownership
+    # Ensure compile cache dir exists (needed by NODE_COMPILE_CACHE env var)
+    mkdir -p /var/tmp/openclaw-compile-cache && chmod 755 /var/tmp/openclaw-compile-cache
     chown -R "$TARGET_USER:$TARGET_USER" "$service_dir"
 
     # Enable linger for the user - allows systemd user services to run without active session
