@@ -1,0 +1,9 @@
+{
+  "log-driver": "journald",
+  "live-restore": true,
+  "storage-driver": "overlay2",
+  "userland-proxy": false,
+  "iptables": true,
+  "ip-forward": false,
+  "dns": ["8.8.8.8", "1.1.1.1"]
+}
