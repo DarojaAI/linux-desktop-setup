@@ -134,6 +134,47 @@ EOF
     log_info "Token rotation cron configured"
 }
 
+# Configure Docker daemon (idempotent; does NOT restart docker — see PR description)
+configure_docker_daemon() {
+    log_step "Configuring Docker daemon..."
+
+    local target="/etc/docker/daemon.json"
+    local repo_file="$SCRIPT_DIR/etc/docker/daemon.json"
+
+    if [[ ! -f "$repo_file" ]]; then
+        log_warn "Repo template not found at $repo_file; skipping"
+        return 0
+    fi
+
+    # If target exists and matches repo content, nothing to do (idempotent re-run safe).
+    if [[ -f "$target" ]] && diff -q "$target" "$repo_file" >/dev/null 2>&1; then
+        log_info "$target already matches repo template; nothing to do"
+        return 0
+    fi
+
+    # Snapshot before write (for rollback contract on first-boot path).
+    if [[ -f "$target" ]]; then
+        local snap="/etc/docker/daemon.json.snap-$(date +%s)"
+        cp "$target" "$snap" || log_warn "Could not snapshot existing $target"
+        log_info "Snapshot at $snap (rollback: sudo cp $snap $target && sudo systemctl restart docker)"
+    fi
+
+    # Validate repo template is valid JSON before installing.
+    if ! python3 -c "import json,sys; json.load(open(sys.argv[1]))" "$repo_file" >/dev/null 2>&1; then
+        log_error "Repo template $repo_file is not valid JSON; refusing to write"
+        return 1
+    fi
+
+    mkdir -p "$(dirname "$target")"
+    install -m 0644 "$repo_file" "$target"
+    log_info "Installed $target from $repo_file"
+
+    # IMPORTANT: this function does NOT restart docker. Re-running deploy-desktop.sh
+    # on a live VM with active agents must not kill running containers. Operator
+    # applies the change with: sudo systemctl restart docker
+    log_info "To apply: sudo systemctl restart docker (NOT done automatically to keep re-run safe)"
+}
+
 # Setup GitHub issues automation
 setup_github_issues() {
     log_step "Setting up GitHub issues..."

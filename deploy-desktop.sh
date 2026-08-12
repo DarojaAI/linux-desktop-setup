@@ -173,6 +173,7 @@ main() {
     if [[ "${SKIP_CONFIG:-false}" != "true" ]]; then
         setup_environment
         configure_mcp_servers
+        configure_docker_daemon
         create_desktop_shortcuts
     fi
 
