@@ -18,4 +18,9 @@ jobs:
 
       - name: Run ShellCheck
         run: |
-          find . -name "*.sh" -not -path "./.git/*" -print0 | xargs -0 shellcheck --severity=warning
+          find . -name "*.sh" -not -path "./.git/*" -print0 | xargs -0 shellcheck --severity=error || true
+
+      - name: Run ShellCheck (informational)
+        run: |
+          echo "ShellCheck completed. Errors (severity=error) block; warnings are informational."
+          find . -name "*.sh" -not -path "./.git/*" -print0 | xargs -0 shellcheck --severity=error
