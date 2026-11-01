@@ -50,19 +50,7 @@ install_openclaw() {
         fi
     fi
 
-    if ! command -v node &> /dev/null || [[ "$(node -v | cut -d. -f1 | tr -d 'v')" -lt 22 ]]; then
-        log_info "Installing Node.js 22.x for OpenCLAW..."
-        if ! curl -fsSL https://deb.nodesource.com/setup_22.x | bash -; then
-            log_error "Failed to setup NodeSource repository"
-            return 1
-        fi
-        if ! apt-get install -y nodejs; then
-            log_error "Failed to install Node.js"
-            return 1
-        fi
-        cleanup_openclaw_npm
-        log_info "Node.js 22.x installed"
-    fi
+    # Node ships inside the L3 release artifact; the VM host carries no system node.
 
     if command -v npm &> /dev/null; then
         if npm install -g "openclaw@$OPENCLAW_VERSION" 2>&1; then

@@ -60,19 +60,7 @@ install_claude_code() {
         return 0
     fi
 
-    # Ensure Node.js 22+ is available (OpenCLAW and Claude Code require Node 22+)
-    if ! command -v node &> /dev/null || [[ "$(node -v | cut -d. -f1 | tr -d 'v')" -lt 22 ]]; then
-        log_info "Installing Node.js 22.x..."
-        # Use NodeSource for modern Node.js version
-        if ! curl -fsSL https://deb.nodesource.com/setup_22.x | bash -; then
-            log_error "Failed to setup NodeSource repository"
-            return 1
-        fi
-        if ! apt-get install -y nodejs; then
-            log_error "Failed to install Node.js"
-            return 1
-        fi
-    fi
+    # Node ships inside the L3 release artifact; the VM host carries no system node.
 
     # Verify npm is available
     if ! command -v npm &> /dev/null; then
